@@ -38,6 +38,9 @@ public:
 
   void setParams(const std::vector<float>& params) { parseParams(params); }
 
+  void load(const std::string& name) { }
+  void save(const std::string& name) { }
+
 protected:
   virtual void updateImpl(Tensor params, Tensor grads) = 0;
   virtual void parseParams(const std::vector<float>& params) = 0;
