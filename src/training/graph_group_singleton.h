@@ -51,7 +51,8 @@ public:
         builder_->load(graph_, name);
       }
 
-      opt_->load(name + ".optimizer.npz");
+      auto device = options_->get<std::vector<size_t>>("devices")[0];
+      opt_->load(name + ".optimizer.npz", device);
     }
   }
 
