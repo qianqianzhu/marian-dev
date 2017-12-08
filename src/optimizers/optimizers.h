@@ -38,6 +38,14 @@ public:
 
   void setParams(const std::vector<float>& params) { parseParams(params); }
 
+  virtual void setB1(float newValue) {
+    return;
+  }
+
+  virtual void setB2(float newValue) {
+    return;
+  }
+
 protected:
   virtual void updateImpl(Tensor params, Tensor grads) = 0;
   virtual void parseParams(const std::vector<float>& params) = 0;
@@ -106,6 +114,14 @@ public:
   Adam(float eta, Ptr<ClipperBase> clipper = nullptr)
       : OptimizerBase(eta, clipper), t_(0) {}
 
+  void setB1(float newValue) {
+    beta1_ = newValue;
+  }
+
+  void setB2(float newValue) {
+    beta2_ = newValue;
+  }
+
 private:
   void updateImpl(Tensor params, Tensor grads);
 
@@ -139,8 +155,8 @@ private:
       eps_ = params[2];
   }
 
-  float beta1_ = 0.9;
-  float beta2_ = 0.999;
+  float beta1_ = 0.91;
+  float beta2_ = 0.998;
   float eps_ = 1e-8;
   size_t t_;
 

@@ -37,6 +37,11 @@ void AsyncGraphGroup::fetchParams(Tensor oldParams,
   }
 }
 
+void AsyncGraphGroup::reversefetchParamsLocal(Tensor newParams, const std::vector<Tensor>& params, int idx) {
+  int pos = shardSize_*idx;
+  params[idx]->copyFrom(newParams->subtensor(pos, params[idx]->size()));
+}
+
 void AsyncGraphGroup::pushGradients(Tensor newGrads,
                                     size_t batch_words,
                                     int device_id) {
@@ -164,6 +169,14 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     thread_local Tensor accGradients;
     thread_local Ptr<TensorAllocator> accAlloc;
 
+    //Thread local optimizer:
+    thread_local Ptr<OptimizerBase> localOpt = Ptr<OptimizerBase>(new Adam(options_->get<double>("learn-rate")));
+
+    if (t==0) {
+      localOpt->setB1(0.93f);
+      localOpt->setB1(0.997f);
+    }
+
     if(!graph) {
       std::lock_guard<std::mutex> lock(sync_);
       t_id = i;
@@ -181,8 +194,22 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     float cost = costNode->scalar();
     graph->backward();
 
-    // Get batch stats
     size_t batch_words = batch->words();
+
+    // Get batch stats
+    if (tau_ > 0 && t < 3000) {
+      localOpt->update(graph, batch_words/avgBatchWords_);
+      reversefetchParamsLocal(graph->params()->vals(),
+                    params_, t_id);
+      //shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
+
+    }
+    //Get batch stats
+    if (t == 4000) {
+      shardOpt_[t_id]->setB1(0.92);
+      shardOpt_[t_id]->setB2(0.998);
+    }
+
 
     Tensor gradients;
     if(tau_ > 1) {

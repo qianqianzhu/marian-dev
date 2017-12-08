@@ -58,6 +58,8 @@ protected:
                              size_t batch_words,
                              int device_id);
 
+  virtual void reversefetchParamsLocal(Tensor newParams, const std::vector<Tensor>& params, int idx);
+
   void updateMovingAverage(Tensor paramsAvg, Tensor params, size_t batches);
 
   void execute(Ptr<data::Batch> batch);
