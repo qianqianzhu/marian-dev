@@ -5,6 +5,7 @@
 #include "models/model_base.h"
 #include "models/nematus.h"
 #include "models/s2s.h"
+#include "models/s2s_lmint.h"
 #include "models/charS2S.h"
 #include "models/transformer.h"
 
@@ -65,6 +66,15 @@ Ptr<ModelBase> by_type(std::string type, Ptr<Options> options) {
         ("original-type", type)
             .push_back(models::encoder()("type", "s2s"))
             .push_back(models::decoder()("type", "s2s"))
+            .construct();
+  }
+
+  // clang-format off
+  if(type == "s2s_lmint") {
+    return models::encoder_decoder()(options)
+        ("original-type", type)
+            .push_back(models::encoder()("type", "s2s"))
+            .push_back(models::decoder()("type", "s2s_lmint"))
             .construct();
   }
 

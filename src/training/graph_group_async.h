@@ -17,7 +17,7 @@ class AsyncGraphGroup : public GraphGroup {
 public:
   virtual void setScheduler(Ptr<Scheduler> scheduler);
 
-protected:
+//protected:
   bool first_{true};
 
   std::vector<Ptr<models::ModelBase>> builders_;
