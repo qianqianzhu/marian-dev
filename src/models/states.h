@@ -32,6 +32,8 @@ class DecoderState {
 protected:
   std::vector<Ptr<EncoderState>> encStates_;
 
+  Ptr<DecoderState> lmState_; //@TODO if Marcin likes this it can become a vector for multi-decoder
+
   Expr targetEmbeddings_;
   Expr targetMask_;
   Expr probs_;
@@ -44,9 +46,20 @@ public:
                std::vector<Ptr<EncoderState>>& encStates)
       : states_(states), probs_(probs), encStates_(encStates) {}
 
+  DecoderState(const rnn::States& states,
+               Expr probs,
+               std::vector<Ptr<EncoderState>>& encStates,
+               Ptr<DecoderState> lmState)
+      : states_(states), probs_(probs), encStates_(encStates), lmState_(lmState) {}
+
   virtual std::vector<Ptr<EncoderState>>& getEncoderStates() {
     return encStates_;
   }
+
+  virtual Ptr<DecoderState> getLMState() {
+    return lmState_;
+  }
+
   virtual Expr getProbs() { return probs_; }
   virtual void setProbs(Expr probs) { probs_ = probs; }
 

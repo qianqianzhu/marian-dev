@@ -290,6 +290,8 @@ public:
 
     auto embeddings = state->getTargetEmbeddings();
 
+    auto lm_embeddings = state->getLMState()->getTargetEmbeddings();
+
     // dropout target words
     float dropoutTrg = inference_ ? 0 : opt<float>("dropout-trg");
     if(dropoutTrg) {
@@ -298,18 +300,31 @@ public:
       embeddings = dropout(embeddings, mask = trgWordDrop);
     }
 
+    //@TODO apply dropout to the LM
+
     if(!rnn_)
       rnn_ = constructDecoderRNN(graph, state);
+
+    if(!rnn_LM)
+       loadLM("hard/coded/path");
 
     // apply RNN to embeddings, initialized with encoder context mapped into
     // decoder space
     auto decoderContext = rnn_->transduce(embeddings, state->getStates());
 
+    // apply RNN to embeddings to LM, initialized with encoder context mapped into
+    // decoder space
+    auto lm_decoderContext = rnn_LM->transduce(lm_embeddings, state->getLMState()->getStates());
+
     // retrieve the last state per layer. They are required during translation
     // in order to continue decoding for the next word
     rnn::States decoderStates = rnn_->lastCellStates();
 
-    std::vector<Expr> alignedContexts;
+    // retrieve the last LM state per layer. They are required during translation
+    // in order to continue decoding for the next word
+    rnn::States lm_decoderStates = rnn_LM->lastCellStates();
+
+    std::vector<Expr> alignedContexts; //@TODO this empty for the LM?
     for(int k = 0; k < state->getEncoderStates().size(); ++k) {
       // retrieve all the aligned contexts computed by the attention mechanism
       auto att = rnn_->at(0)
@@ -354,14 +369,49 @@ public:
                       .push_back(layer1)  //
                       .push_back(layer2);
 
+        // construct deep output multi-layer network layer-wise
+    auto lm_layer1 = mlp::dense(graph)                                //
+        ("prefix", prefix_ + "_ff_logit_l1")                       //
+        ("dim", opt<int>("dim-emb"))                               //
+        ("activation", mlp::act::tanh)                             //
+        ("layer-normalization", opt<bool>("layer-normalization"))  //
+        ("nematus-normalization",
+         options_->has("original-type")
+             && opt<std::string>("original-type") == "nematus");
+
+    int lm_dimTrgVoc = opt<std::vector<int>>("dim-vocabs")[batchIndex_];
+
+    auto lm_layer2 = mlp::dense(graph)           //
+        ("prefix", prefix_ + "_ff_logit_l2")  //
+        ("dim", dimTrgVoc);
+/*
+    if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
+      std::string tiedPrefix = prefix_ + "_Wemb";
+      if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
+        tiedPrefix = "Wemb";
+      layer2.tie_transposed("W", tiedPrefix);
+    }
+*/
+    // assemble layers into MLP and apply to embeddings, decoder context and
+    // aligned source context
+    auto lm_output = mlp::mlp(graph)         //
+                      .push_back(lm_layer1)  //
+                      .push_back(lm_layer2);
+
+
     Expr logits;
     if(alignedContext)
       logits = output->apply(embeddings, decoderContext, alignedContext);
     else
       logits = output->apply(embeddings, decoderContext);
+
+
+    Expr lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+
+    auto lm_decoderStates_ = New<DecoderState>(lm_decoderStates, lm_logits, state->getLMState()->getEncoderStates());
       
     // return unormalized(!) probabilities
-    return New<DecoderState>(decoderStates, logits, state->getEncoderStates());
+    return New<DecoderState>(decoderStates, logits, state->getEncoderStates(), lm_decoderStates_);
   }
 
   // helper function for guided alignment
