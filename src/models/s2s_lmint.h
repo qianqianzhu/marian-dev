@@ -279,9 +279,17 @@ public:
 
       start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
     }
+    //Start state for LM deecoder.
+    int dimBatch = batch->size();
+    int dimRnn = opt<int>("dim-rnn"); //Assuming the same decoder shape as the one used
+    Expr lm_start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
 
     rnn::States startStates(opt<size_t>("dec-depth"), {start, start});
-    return New<DecoderState>(startStates, nullptr, encStates);
+    rnn::States lm_startStates(opt<size_t>("dec-depth"), {lm_start, lm_start});
+
+    auto lm_decoderStates_ = New<DecoderState>(lm_startStates, nullptr, encStates); //@TODO marcin can encStates be null or?
+
+    return New<DecoderState>(startStates, nullptr, encStates, lm_decoderStates_);
   }
 
   virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
@@ -298,9 +306,8 @@ public:
       int trgWords = embeddings->shape()[-3];
       auto trgWordDrop = graph->dropout(dropoutTrg, {trgWords, 1, 1});
       embeddings = dropout(embeddings, mask = trgWordDrop);
+      lm_embeddings = dropout(lm_embeddings, mask = trgWordDrop); //@TODO is that the lm_dropout
     }
-
-    //@TODO apply dropout to the LM
 
     if(!rnn_)
       rnn_ = constructDecoderRNN(graph, state);
@@ -363,15 +370,14 @@ public:
       layer2.tie_transposed("W", tiedPrefix);
     }
 
-    // assemble layers into MLP and apply to embeddings, decoder context and
-    // aligned source context
+    // construct deep output multi-layer network layer-wise for the LM
     auto output = mlp::mlp(graph)         //
                       .push_back(layer1)  //
                       .push_back(layer2);
 
         // construct deep output multi-layer network layer-wise
     auto lm_layer1 = mlp::dense(graph)                                //
-        ("prefix", prefix_ + "_ff_logit_l1")                       //
+        ("prefix", prefix_ + "_lm_ff_logit_l1")                       //
         ("dim", opt<int>("dim-emb"))                               //
         ("activation", mlp::act::tanh)                             //
         ("layer-normalization", opt<bool>("layer-normalization"))  //
@@ -379,10 +385,9 @@ public:
          options_->has("original-type")
              && opt<std::string>("original-type") == "nematus");
 
-    int lm_dimTrgVoc = opt<std::vector<int>>("dim-vocabs")[batchIndex_];
 
     auto lm_layer2 = mlp::dense(graph)           //
-        ("prefix", prefix_ + "_ff_logit_l2")  //
+        ("prefix", prefix_ + "_lm_ff_logit_l2")  //
         ("dim", dimTrgVoc);
 /*
     if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
