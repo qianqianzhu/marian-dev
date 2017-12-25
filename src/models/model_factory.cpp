@@ -6,7 +6,7 @@
 #include "models/nematus.h"
 #include "models/s2s.h"
 #include "models/s2s_lmint.h"
-#include "models/charS2S.h"
+#include "models/char_s2s.h"
 #include "models/transformer.h"
 
 #include "examples/mnist/model.h"
