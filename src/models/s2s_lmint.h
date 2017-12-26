@@ -178,7 +178,60 @@ private:
   Ptr<rnn::RNN> rnn_;
   Ptr<rnn::RNN> rnn_LM; // Language model addition
 
-  void loadLM(char * path_to_model) {}; //Load the language model from disk.
+  Ptr<rnn::RNN> loadLM(const std::string& name,
+              Ptr<ExpressionGraph> graph,
+              Ptr<DecoderState> state) {
+
+    float dropoutRnn = inference_ ? 0 : opt<float>("dropout-rnn");
+    auto rnn = rnn::rnn(graph)                                     //
+        ("type", opt<std::string>("dec-cell"))                     //
+        ("dimInput", opt<int>("dim-emb"))                          //
+        ("dimState", opt<int>("dim-rnn"))                          //
+        ("dropout", dropoutRnn)                                    //
+        ("layer-normalization", opt<bool>("layer-normalization"))  //
+        ("nematus-normalization",
+         options_->has("original-type")
+             && opt<std::string>("original-type") == "nematus")  //
+        ("skip", opt<bool>("skip"));
+
+    size_t decoderLayers = opt<size_t>("dec-depth");
+    size_t decoderBaseDepth = opt<size_t>("dec-cell-base-depth");
+    size_t decoderHighDepth = opt<size_t>("dec-cell-high-depth");
+
+    // setting up conditional (transitional) cell
+    auto baseCell = rnn::stacked_cell(graph);
+    for(int i = 1; i <= decoderBaseDepth; ++i) {
+      bool transition = (i > 2);
+      auto paramPrefix = prefix_ + "_lm_cell" + std::to_string(i);
+      baseCell.push_back(rnn::cell(graph)         //
+                         ("prefix", paramPrefix)  //
+                         ("final", i > 1)         //
+                         ("transition", transition));
+    }
+    // Add cell to RNN (first layer)
+    rnn.push_back(baseCell);
+
+    // Add more cells to RNN (stacked RNN)
+    //@TODO not really supported
+    for(int i = 2; i <= decoderLayers; ++i) {
+      // deep transition
+      auto highCell = rnn::stacked_cell(graph);
+
+      for(int j = 1; j <= decoderHighDepth; j++) {
+        auto paramPrefix
+            = prefix_ + "_l" + std::to_string(i) + "_lm_cell" + std::to_string(j);
+        highCell.push_back(rnn::cell(graph)("prefix", paramPrefix));
+      }
+
+      // Add cell to RNN (more layers)
+      rnn.push_back(highCell);
+    }
+
+    auto ret = rnn.construct();
+
+    graph->load(name, !opt<bool>("ignore-model-config"));
+    return ret;
+  }; //Load the language model from disk.
 
   Ptr<rnn::RNN> constructDecoderRNN(Ptr<ExpressionGraph> graph,
                                     Ptr<DecoderState> state) {
@@ -287,7 +340,8 @@ public:
     rnn::States startStates(opt<size_t>("dec-depth"), {start, start});
     rnn::States lm_startStates(opt<size_t>("dec-depth"), {lm_start, lm_start});
 
-    auto lm_decoderStates_ = New<DecoderState>(lm_startStates, nullptr, encStates); //@TODO marcin can encStates be null or?
+    std::vector<Ptr<EncoderState>> empty_encStates_;
+    auto lm_decoderStates_ = New<DecoderState>(lm_startStates, nullptr, empty_encStates_);
 
     return New<DecoderState>(startStates, nullptr, encStates, lm_decoderStates_);
   }
@@ -313,7 +367,7 @@ public:
       rnn_ = constructDecoderRNN(graph, state);
 
     if(!rnn_LM)
-       loadLM("hard/coded/path");
+      rnn_LM = loadLM("hard/coded/path", graph, state->getLMState());
 
     // apply RNN to embeddings, initialized with encoder context mapped into
     // decoder space
