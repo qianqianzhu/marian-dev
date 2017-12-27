@@ -367,7 +367,7 @@ public:
       rnn_ = constructDecoderRNN(graph, state);
 
     if(!rnn_LM)
-      rnn_LM = loadLM("hard/coded/path", graph, state->getLMState());
+      rnn_LM = loadLM(opt<std::string>("lm-path"), graph, state->getLMState());
 
     // apply RNN to embeddings, initialized with encoder context mapped into
     // decoder space
