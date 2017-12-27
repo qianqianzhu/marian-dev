@@ -439,7 +439,7 @@ public:
 
   void setThrowNaN(bool throwNaN) { throwNaN_ = throwNaN; }
 
-  void load(const std::string& name, bool markReloaded) {
+  void load(const std::string& name, bool markReloaded, bool fixed=false) {
     using namespace keywords;
 
     LOG(info, "Loading model from {}", name);
@@ -464,7 +464,7 @@ public:
           shape.set(i, it.second.shape[i]);
       }
 
-      param(name, shape, init = inits::from_numpy(it.second));
+      param(name, shape, init = inits::from_numpy(it.second), keywords::fixed=fixed);
     }
 
     if(markReloaded)
