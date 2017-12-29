@@ -203,7 +203,7 @@ public:
     state->setTargetEmbeddings(yShifted);
     state->setTargetMask(yMask);
 
-    if(opt<std::string>("type")=="s2s_lm") {
+    if(opt<std::string>("type")=="s2s_lmint") {
       groundTruthLM(state, graph, batch); //@TODO I'm just using this for the side effect
     }                                   //I don't need to do anything else?
 
@@ -242,7 +242,7 @@ public:
     }
     state->setTargetEmbeddings(selectedEmbs);
 
-    if(opt<std::string>("type")=="s2s_lm") {
+    if(opt<std::string>("type")=="s2s_lmint") {
       selectEmbeddingsLM(graph, state, embIdx, dimBatch, dimBeam);
     }
   }

@@ -29,6 +29,8 @@ Ptr<EncoderBase> EncoderFactory::construct() {
 Ptr<DecoderBase> DecoderFactory::construct() {
   if(options_->get<std::string>("type") == "s2s")
     return New<DecoderS2S>(options_);
+  if(options_->get<std::string>("type") == "s2s_lmint")
+    return New<DecoderS2S_LM>(options_);
   if(options_->get<std::string>("type") == "transformer")
     return New<DecoderTransformer>(options_);
   if(options_->get<std::string>("type") == "hard-att")
