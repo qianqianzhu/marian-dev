@@ -71,6 +71,90 @@ public:
 
   virtual Ptr<DecoderState> step(Ptr<ExpressionGraph>, Ptr<DecoderState>) = 0;
 
+  virtual std::tuple<Expr, Expr> groundTruthLM(Ptr<DecoderState> state,
+                                             Ptr<ExpressionGraph> graph,
+                                             Ptr<data::CorpusBatch> batch) {
+    using namespace keywords;
+
+    int dimVoc = opt<std::vector<int>>("dim-vocabs")[batchIndex_];
+    int dimEmb = opt<int>("dim-emb");
+
+    auto yEmbFactory = embedding(graph)  //
+        ("dimVocab", dimVoc)             //
+        ("dimEmb", dimEmb);
+//No tied embeddings for the LM
+    //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
+    //  yEmbFactory("prefix", "Wemb");
+    //else
+    yEmbFactory("prefix", prefix_ + "_lm_Wemb");
+/*@TODO I have already loaded them as fixed, do I need to specify them as fixed here as well
+    if(options_->has("embedding-fix-trg"))
+      yEmbFactory("fixed", opt<bool>("embedding-fix-trg"));
+
+    if(options_->has("embedding-vectors")) {
+      auto embFiles = opt<std::vector<std::string>>("embedding-vectors");
+      yEmbFactory("embFile", embFiles[batchIndex_])  //
+          ("normalization", opt<bool>("embedding-normalization"));
+    }*/
+
+    auto yEmb = yEmbFactory.construct();
+
+    auto subBatch = (*batch)[batchIndex_];
+    int dimBatch = subBatch->batchSize();
+    int dimWords = subBatch->batchWidth();
+
+    auto chosenEmbeddings = rows(yEmb, subBatch->indices());
+
+    auto y
+        = reshape(chosenEmbeddings, {dimWords, dimBatch, opt<int>("dim-emb")});
+
+    auto yMask = graph->constant({dimWords, dimBatch, 1},
+                                 init = inits::from_vector(subBatch->mask()));
+
+    auto yIdx = graph->constant({(int)subBatch->indices().size(), 1},
+                                init = inits::from_vector(subBatch->indices()));
+
+    auto yShifted = shift(y, {1, 0, 0});
+
+    state->getLMState()->setTargetEmbeddings(yShifted); //@TODO can LMSTATE not exist here?
+    state->getLMState()->setTargetMask(yMask);
+
+    return std::make_tuple(yMask, yIdx);
+  }
+
+  virtual void selectEmbeddingsLM(Ptr<ExpressionGraph> graph,
+                                Ptr<DecoderState> state,
+                                const std::vector<size_t>& embIdx,
+                                int dimBatch, int dimBeam) {
+    using namespace keywords;
+
+    int dimTrgEmb = opt<int>("dim-emb");
+    int dimTrgVoc = opt<std::vector<int>>("dim-vocabs")[batchIndex_];
+
+    // embeddings are loaded from model during translation, no fixing required
+    auto yEmbFactory = embedding(graph)  //
+        ("dimVocab", dimTrgVoc)          //
+        ("dimEmb", dimTrgEmb);
+
+    //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
+    //  yEmbFactory("prefix", "Wemb");
+    //else @TODO no tied embeddings
+    yEmbFactory("prefix", prefix_ + "_lm_Wemb");
+
+    auto yEmb = yEmbFactory.construct();
+
+    Expr selectedEmbs;
+    if(embIdx.empty()) {
+      selectedEmbs = graph->constant({1, 1, dimBatch, dimTrgEmb},
+                                     init = inits::zeros);
+    } else {
+      selectedEmbs = rows(yEmb, embIdx);
+      selectedEmbs
+          = reshape(selectedEmbs, {dimBeam, 1, dimBatch, dimTrgEmb});
+    }
+    state->getLMState()->setTargetEmbeddings(selectedEmbs); //@TODO can getLMState be empty?
+  }
+
   virtual std::tuple<Expr, Expr> groundTruth(Ptr<DecoderState> state,
                                              Ptr<ExpressionGraph> graph,
                                              Ptr<data::CorpusBatch> batch) {
@@ -119,6 +203,10 @@ public:
     state->setTargetEmbeddings(yShifted);
     state->setTargetMask(yMask);
 
+    if(opt<std::string>("type")=="s2s_lm") {
+      groundTruthLM(state, graph, batch); //@TODO I'm just using this for the side effect
+    }                                   //I don't need to do anything else?
+
     return std::make_tuple(yMask, yIdx);
   }
 
@@ -153,6 +241,10 @@ public:
           = reshape(selectedEmbs, {dimBeam, 1, dimBatch, dimTrgEmb});
     }
     state->setTargetEmbeddings(selectedEmbs);
+
+    if(opt<std::string>("type")=="s2s_lm") {
+      selectEmbeddingsLM(graph, state, embIdx, dimBatch, dimBeam);
+    }
   }
 
   virtual const std::vector<Expr> getAlignments(int i = 0) { return {}; };
