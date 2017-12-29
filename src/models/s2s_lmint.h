@@ -229,7 +229,8 @@ private:
 
     auto ret = rnn.construct();
 
-    graph->load(name, !opt<bool>("ignore-model-config"), true); //The true marks the loaded model as non-trainable
+    graph->load(name, false, true); //The true marks the loaded model as non-trainable
+                                    //The false marks that we are ignoring model config
     return ret;
   }; //Load the language model from disk.
 
