@@ -68,6 +68,7 @@ public:
     auto dim = opt<int>("dim");
 
     auto layerNorm = opt<bool>("layer-normalization", false);
+    bool fixed = opt<bool>("fixed", false);
     auto nematusNorm = opt<bool>("nematus-normalization", false);
     auto activation = opt<act>("activation", act::linear);
 
@@ -84,7 +85,8 @@ public:
       else
         W = g->param(name + "_" + nameW,
                      {in->shape()[-1], dim},
-                     keywords::init = inits::glorot_uniform);
+                     keywords::init = inits::glorot_uniform,
+                     keywords::fixed = fixed);
 
       Expr b;
       std::string nameB = "b" + std::to_string(i);
@@ -92,7 +94,7 @@ public:
         b = tiedParams_[nameB];
       else
         b = g->param(
-            name + "_" + nameB, {1, dim}, keywords::init = inits::zeros);
+            name + "_" + nameB, {1, dim}, keywords::init = inits::zeros, keywords::fixed = fixed);
 
       params_.push_back(W);
       params_.push_back(b);
@@ -101,17 +103,20 @@ public:
         if(nematusNorm) {
           auto ln_s = g->param(name + "_ln_s" + std::to_string(i),
                                {1, dim},
-                               keywords::init = inits::from_value(1.f));
+                               keywords::init = inits::from_value(1.f),
+                               keywords::fixed = fixed);
           auto ln_b = g->param(name + "_ln_b" + std::to_string(i),
                                {1, dim},
-                               keywords::init = inits::zeros);
+                               keywords::init = inits::zeros,
+                               keywords::fixed = fixed);
 
           outputs.push_back(
               layer_norm(affine(in, W, b), ln_s, ln_b, NEMATUS_LN_EPS));
         } else {
           auto gamma = g->param(name + "_gamma" + std::to_string(i),
                                 {1, dim},
-                                keywords::init = inits::from_value(1.0));
+                                keywords::init = inits::from_value(1.0),
+                                keywords::fixed = fixed);
 
           params_.push_back(gamma);
           outputs.push_back(layer_norm(dot(in, W), gamma, b));
@@ -142,6 +147,7 @@ public:
     auto dim = options_->get<int>("dim");
 
     auto layerNorm = options_->get<bool>("layer-normalization", false);
+    bool fixed = opt<bool>("fixed", false);
     auto nematusNorm = opt<bool>("nematus-normalization", false);
     auto activation = options_->get<act>("activation", act::linear);
 
@@ -152,14 +158,15 @@ public:
     else
       W = g->param(name + "_" + nameW,
                    {input->shape()[-1], dim},
-                   keywords::init = inits::glorot_uniform);
+                   keywords::init = inits::glorot_uniform,
+                   keywords::fixed = fixed);
 
     Expr b;
     std::string nameB = "b";
     if(tiedParams_.count(nameB))
       b = tiedParams_[nameB];
     else
-      b = g->param(name + "_" + nameB, {1, dim}, keywords::init = inits::zeros);
+      b = g->param(name + "_" + nameB, {1, dim}, keywords::init = inits::zeros, keywords::fixed = fixed);
 
     params_ = {W, b};
 
@@ -167,14 +174,14 @@ public:
     if(layerNorm) {
       if(nematusNorm) {
         auto ln_s = g->param(
-            name + "_ln_s", {1, dim}, keywords::init = inits::from_value(1.f));
+            name + "_ln_s", {1, dim}, keywords::init = inits::from_value(1.f), keywords::fixed = fixed);
         auto ln_b
-            = g->param(name + "_ln_b", {1, dim}, keywords::init = inits::zeros);
+            = g->param(name + "_ln_b", {1, dim}, keywords::init = inits::zeros, keywords::fixed = fixed);
 
         out = layer_norm(affine(input, W, b), ln_s, ln_b, NEMATUS_LN_EPS);
       } else {
         auto gamma = g->param(
-            name + "_gamma", {1, dim}, keywords::init = inits::from_value(1.0));
+            name + "_gamma", {1, dim}, keywords::init = inits::from_value(1.0), keywords::fixed = fixed);
 
         params_.push_back(gamma);
         out = layer_norm(dot(input, W), gamma, b);

@@ -86,7 +86,8 @@ public:
     //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
     //  yEmbFactory("prefix", "Wemb");
     //else
-    yEmbFactory("prefix", prefix_ + "_lm_Wemb");
+    yEmbFactory("prefix", prefix_ + "_lm_Wemb"); //Make fixed
+    yEmbFactory("fixed", true);
 /*@TODO I have already loaded them as fixed, do I need to specify them as fixed here as well
     if(options_->has("embedding-fix-trg"))
       yEmbFactory("fixed", opt<bool>("embedding-fix-trg"));
@@ -140,6 +141,7 @@ public:
     //  yEmbFactory("prefix", "Wemb");
     //else @TODO no tied embeddings
     yEmbFactory("prefix", prefix_ + "_lm_Wemb");
+    yEmbFactory("fixed", true); //Fixed embeddings for the target side.
 
     auto yEmb = yEmbFactory.construct();
 
