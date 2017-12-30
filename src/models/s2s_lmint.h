@@ -468,6 +468,8 @@ public:
 
     Expr lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
     //@TODO for shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
+    auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
+    logits = logits + alpha*lm_logits;
 
     auto lm_decoderStates_ = New<DecoderState>(lm_decoderStates, lm_logits, state->getLMState()->getEncoderStates());
       
