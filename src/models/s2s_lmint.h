@@ -178,8 +178,7 @@ private:
   Ptr<rnn::RNN> rnn_;
   Ptr<rnn::RNN> rnn_LM; // Language model addition
 
-  Ptr<rnn::RNN> loadLM(const std::string& name,
-              Ptr<ExpressionGraph> graph,
+  Ptr<rnn::RNN> constructLM(Ptr<ExpressionGraph> graph,
               Ptr<DecoderState> state) {
 
     float dropoutRnn = inference_ ? 0 : opt<float>("dropout-rnn");
@@ -229,10 +228,8 @@ private:
 
     auto ret = rnn.construct();
 
-    graph->load(name, false, true); //The true marks the loaded model as non-trainable
-                                    //The false marks that we are ignoring model config
     return ret;
-  }; //Load the language model from disk.
+  };
 
   Ptr<rnn::RNN> constructDecoderRNN(Ptr<ExpressionGraph> graph,
                                     Ptr<DecoderState> state) {
@@ -368,7 +365,7 @@ public:
       rnn_ = constructDecoderRNN(graph, state);
 
     if(!rnn_LM)
-      rnn_LM = loadLM(opt<std::string>("lm-path"), graph, state->getLMState());
+      rnn_LM = constructLM(graph, state->getLMState());
 
     // apply RNN to embeddings, initialized with encoder context mapped into
     // decoder space
@@ -468,8 +465,8 @@ public:
 
     Expr lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
     //@TODO for shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
-    auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
-    logits = logits + alpha*lm_logits;
+    //auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
+    logits = logits + 0.2*lm_logits;//+ alpha*lm_logits;
 
     auto lm_decoderStates_ = New<DecoderState>(lm_decoderStates, lm_logits, state->getLMState()->getEncoderStates());
       
@@ -484,6 +481,9 @@ public:
     return att->getAlignments();
   }
 
-  void clear() { rnn_ = nullptr; }
+  void clear() {
+    rnn_ = nullptr;
+    rnn_LM = nullptr;
+   }
 };
 }
