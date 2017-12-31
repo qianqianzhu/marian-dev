@@ -286,14 +286,14 @@ public:
         ("prefix", prefix_ + "_lm_ff_logit_l2")  //
         ("dim", dimTrgVoc)
         ("fixed", true);
-/*
+
     if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
-      std::string tiedPrefix = prefix_ + "_Wemb";
-      if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
-        tiedPrefix = "Wemb";
+      std::string tiedPrefix = prefix_ + "_lm_Wemb";
+      //if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
+      //  tiedPrefix = "_lm_Wemb"; We don't have source tied embeddings for the LM
       layer2.tie_transposed("W", tiedPrefix);
     }
-*/
+
     // assemble layers into MLP and apply to embeddings, decoder context and
     // aligned source context
     auto lm_output = mlp::mlp(graph)         //

@@ -82,7 +82,7 @@ public:
     auto yEmbFactory = embedding(graph)  //
         ("dimVocab", dimVoc)             //
         ("dimEmb", dimEmb);
-//No tied embeddings for the LM
+//No source tied embeddings in the LM
     //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
     //  yEmbFactory("prefix", "Wemb");
     //else
@@ -138,8 +138,7 @@ public:
         ("dimEmb", dimTrgEmb);
 
     //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
-    //  yEmbFactory("prefix", "Wemb");
-    //else @TODO no tied embeddings
+    //  yEmbFactory("prefix", "Wemb"); //No source tied embeddings for the LM
     yEmbFactory("prefix", prefix_ + "_lm_Wemb");
     yEmbFactory("fixed", true); //Fixed embeddings for the target side.
 
