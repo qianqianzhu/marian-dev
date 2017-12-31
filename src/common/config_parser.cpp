@@ -247,8 +247,6 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
      "Ignore the model configuration saved in npz file")
     ("type", po::value<std::string>()->default_value("amun"),
       "Model type (possible values: amun, nematus, s2s, multi-s2s, s2s_lmint, transformer)")
-    ("lm-path", po::value<std::string>()->default_value("./model_lm.npz"),
-      "If the model is of type s2s_lm this is the path to the interpolated LM")
     ("dim-vocabs", po::value<std::vector<int>>()
       ->multitoken()
       ->default_value(std::vector<int>({0, 0}), "0 0"),
@@ -687,7 +685,6 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
 
   SET_OPTION("ignore-model-config", bool);
   SET_OPTION("type", std::string);
-  SET_OPTION("lm-path", std::string);
   SET_OPTION("dim-vocabs", std::vector<int>);
   SET_OPTION("dim-emb", int);
   SET_OPTION("dim-rnn", int);

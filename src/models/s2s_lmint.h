@@ -1,178 +1,9 @@
 #pragma once
 
 #include "marian.h"
-//#include "models/s2s.h"
 
 namespace marian {
-/*
-class EncoderS2S : public EncoderBase {
-public:
-  Expr applyEncoderRNN(Ptr<ExpressionGraph> graph,
-                       Expr embeddings,
-                       Expr mask,
-                       std::string type) {
-    int first, second;
-    if(type == "bidirectional" || type == "alternating") {
-      // build two separate stacks, concatenate top output
-      first = opt<int>("enc-depth");
-      second = 0;
-    } else {
-      // build 1-layer bidirectional stack, concatenate,
-      // build n-1 layer unidirectional stack
-      first = 1;
-      second = opt<int>("enc-depth") - first;
-    }
 
-    auto forward = type == "alternating" ? rnn::dir::alternating_forward
-                                         : rnn::dir::forward;
-
-    auto backward = type == "alternating" ? rnn::dir::alternating_backward
-                                          : rnn::dir::backward;
-
-    using namespace keywords;
-    float dropoutRnn = inference_ ? 0 : opt<float>("dropout-rnn");
-
-    auto rnnFw = rnn::rnn(graph)                                   //
-        ("type", opt<std::string>("enc-cell"))                     //
-        ("direction", forward)                                     //
-        ("dimInput", embeddings->shape()[-1])                      //
-        ("dimState", opt<int>("dim-rnn"))                          //
-        ("dropout", dropoutRnn)                                    //
-        ("layer-normalization", opt<bool>("layer-normalization"))  //
-        ("skip", opt<bool>("skip"));
-
-    for(int i = 1; i <= first; ++i) {
-      auto stacked = rnn::stacked_cell(graph);
-      for(int j = 1; j <= opt<int>("enc-cell-depth"); ++j) {
-        std::string paramPrefix = prefix_ + "_bi";
-        if(i > 1)
-          paramPrefix += "_l" + std::to_string(i);
-        if(i > 1 || j > 1)
-          paramPrefix += "_cell" + std::to_string(j);
-        bool transition = (j > 1);
-
-        stacked.push_back(rnn::cell(graph)         //
-                          ("prefix", paramPrefix)  //
-                          ("transition", transition));
-      }
-      rnnFw.push_back(stacked);
-    }
-
-    auto rnnBw = rnn::rnn(graph)                                   //
-        ("type", opt<std::string>("enc-cell"))                     //
-        ("direction", backward)                                    //
-        ("dimInput", embeddings->shape()[-1])                      //
-        ("dimState", opt<int>("dim-rnn"))                          //
-        ("dropout", dropoutRnn)                                    //
-        ("layer-normalization", opt<bool>("layer-normalization"))  //
-        ("skip", opt<bool>("skip"));
-
-    for(int i = 1; i <= first; ++i) {
-      auto stacked = rnn::stacked_cell(graph);
-      for(int j = 1; j <= opt<int>("enc-cell-depth"); ++j) {
-        std::string paramPrefix = prefix_ + "_bi_r";
-        if(i > 1)
-          paramPrefix += "_l" + std::to_string(i);
-        if(i > 1 || j > 1)
-          paramPrefix += "_cell" + std::to_string(j);
-        bool transition = (j > 1);
-
-        stacked.push_back(rnn::cell(graph)         //
-                          ("prefix", paramPrefix)  //
-                          ("transition", transition));
-      }
-      rnnBw.push_back(stacked);
-    }
-
-    auto context = concatenate({rnnFw->transduce(embeddings, mask),
-                                rnnBw->transduce(embeddings, mask)},
-                               axis = -1);
-
-    if(second > 0) {
-      // add more layers (unidirectional) by transducing the output of the
-      // previous bidirectional RNN through multiple layers
-
-      // construct RNN first
-      auto rnnUni = rnn::rnn(graph)                                  //
-          ("type", opt<std::string>("enc-cell"))                     //
-          ("dimInput", 2 * opt<int>("dim-rnn"))                      //
-          ("dimState", opt<int>("dim-rnn"))                          //
-          ("dropout", dropoutRnn)                                    //
-          ("layer-normalization", opt<bool>("layer-normalization"))  //
-          ("skip", opt<bool>("skip"));
-
-      for(int i = first + 1; i <= second + first; ++i) {
-        auto stacked = rnn::stacked_cell(graph);
-        for(int j = 1; j <= opt<int>("enc-cell-depth"); ++j) {
-          std::string paramPrefix = prefix_ + "_l" + std::to_string(i) + "_cell"
-                                    + std::to_string(j);
-          stacked.push_back(rnn::cell(graph)("prefix", paramPrefix));
-        }
-        rnnUni.push_back(stacked);
-      }
-
-      // transduce context to new context
-      context = rnnUni->transduce(context);
-    }
-    return context;
-  }
-
-  Expr buildSourceEmbeddings(Ptr<ExpressionGraph> graph) {
-    // create source embeddings
-    int dimVoc = opt<std::vector<int>>("dim-vocabs")[batchIndex_];
-    int dimEmb = opt<int>("dim-emb");
-
-    auto embFactory = embedding(graph)  //
-        ("dimVocab", dimVoc)            //
-        ("dimEmb", dimEmb);
-
-    if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
-      embFactory("prefix", "Wemb");
-    else
-      embFactory("prefix", prefix_ + "_Wemb");
-
-    if(options_->has("embedding-fix-src"))
-      embFactory("fixed", opt<bool>("embedding-fix-src"));
-
-    if(options_->has("embedding-vectors")) {
-      auto embFiles = opt<std::vector<std::string>>("embedding-vectors");
-      embFactory                              //
-          ("embFile", embFiles[batchIndex_])  //
-          ("normalization", opt<bool>("embedding-normalization"));
-    }
-
-    return embFactory.construct();
-  }
-
-  EncoderS2S(Ptr<Options> options) : EncoderBase(options) {}
-
-  virtual Ptr<EncoderState> build(Ptr<ExpressionGraph> graph,
-                                  Ptr<data::CorpusBatch> batch) {
-    auto embeddings = buildSourceEmbeddings(graph);
-
-    using namespace keywords;
-    // select embeddings that occur in the batch
-    Expr batchEmbeddings, batchMask;
-    std::tie(batchEmbeddings, batchMask)
-        = EncoderBase::lookup(embeddings, batch);
-
-    // apply dropout over source words
-    float dropProb = inference_ ? 0 : opt<float>("dropout-src");
-    if(dropProb) {
-      int srcWords = batchEmbeddings->shape()[-3];
-      auto dropMask = graph->dropout(dropProb, {srcWords, 1, 1});
-      batchEmbeddings = dropout(batchEmbeddings, mask = dropMask);
-    }
-
-    Expr context = applyEncoderRNN(
-        graph, batchEmbeddings, batchMask, opt<std::string>("enc-type"));
-
-    return New<EncoderState>(context, batchMask, batch);
-  }
-
-  void clear() {}
-};
-*/
 class DecoderS2S_LM : public DecoderBase {
 private:
   Ptr<rnn::RNN> rnn_;
@@ -297,6 +128,23 @@ private:
 public:
   DecoderS2S_LM(Ptr<Options> options) : DecoderBase(options) {}
 
+  virtual Ptr<DecoderState> startStateLM(
+      Ptr<ExpressionGraph> graph,
+      Ptr<data::CorpusBatch> batch) {
+    using namespace keywords;
+    //Start state for LM deecoder.
+    int dimBatch = batch->size();
+    int dimRnn = opt<int>("dim-rnn"); //Assuming the same decoder shape as the one used
+    Expr lm_start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
+
+    rnn::States lm_startStates(opt<size_t>("dec-depth"), {lm_start, lm_start});
+
+    std::vector<Ptr<EncoderState>> empty_encStates_;
+
+    return New<DecoderState>(lm_startStates, nullptr, empty_encStates_);
+
+  }
+
   virtual Ptr<DecoderState> startState(
       Ptr<ExpressionGraph> graph,
       Ptr<data::CorpusBatch> batch,
@@ -331,16 +179,10 @@ public:
 
       start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
     }
-    //Start state for LM deecoder.
-    int dimBatch = batch->size();
-    int dimRnn = opt<int>("dim-rnn"); //Assuming the same decoder shape as the one used
-    Expr lm_start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
 
     rnn::States startStates(opt<size_t>("dec-depth"), {start, start});
-    rnn::States lm_startStates(opt<size_t>("dec-depth"), {lm_start, lm_start});
 
-    std::vector<Ptr<EncoderState>> empty_encStates_;
-    auto lm_decoderStates_ = New<DecoderState>(lm_startStates, nullptr, empty_encStates_);
+    auto lm_decoderStates_ = startStateLM(graph, batch);
 
     return New<DecoderState>(startStates, nullptr, encStates, lm_decoderStates_);
   }
