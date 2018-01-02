@@ -302,16 +302,85 @@ public:
 
 
     Expr logits;
-    if(alignedContext)
-      logits = output->apply(embeddings, decoderContext, alignedContext);
-    else
-      logits = output->apply(embeddings, decoderContext);
+    Expr lm_logits;
+    //Interpolation code begins here
+    if(opt<std::string>("interpolation-type") == "shallow") {
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext);
+      else
+        logits = output->apply(embeddings, decoderContext);
 
 
-    Expr lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
-    //@TODO for shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
-    //auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
-    logits = logits + 0.2*lm_logits;//+ alpha*lm_logits;
+      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      //Shallow interpolations with a hyperparameter
+      logits = logits + 0.2*lm_logits;
+    }else if(opt<std::string>("interpolation-type") == "shallow-trainable") {
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext);
+      else
+        logits = output->apply(embeddings, decoderContext);
+
+
+      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
+      auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
+      logits = logits + alpha*lm_logits;
+    }else if(opt<std::string>("interpolation-type") == "shallow-matrix") {
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext);
+      else
+        logits = output->apply(embeddings, decoderContext);
+
+
+      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
+      //@TODO ask marcin if there's any 3D tensors here
+      //@TODO use shape() here to get some details about the size
+      auto alpha = graph->param("alpha", {1, dimTrgVoc}, keywords::init=inits::from_value(0.2));
+      logits = logits + alpha*lm_logits;
+    }else if(opt<std::string>("interpolation-type") == "deep") {
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext, lm_decoderContext);
+      else
+        logits = output->apply(embeddings, decoderContext, lm_decoderContext);
+
+      //@TODO this is not necessary right
+      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+    }else if(opt<std::string>("interpolation-type") == "extra-output") {
+        /*
+      auto lm_layer1 = mlp::dense(graph)                                //
+        ("prefix", prefix_ + "_lm_ff_logit_l1")                       //
+        ("dim", opt<int>("dim-emb"))                               //
+        ("activation", mlp::act::tanh)                             //
+        ("layer-normalization", opt<bool>("layer-normalization"))  //
+        ("nematus-normalization",
+         options_->has("original-type")
+             && opt<std::string>("original-type") == "nematus")
+        ("fixed", true);
+
+        */
+      auto interpolate_layer = mlp::dense(graph)           //
+        ("prefix", prefix_ + "_lm_interpolate")  //
+        ("dim", dimTrgVoc);
+
+       // assemble layers into MLP and apply to embeddings, decoder context and
+       // aligned source context
+       auto lm_interpolate = mlp::mlp(graph)         //
+                        .push_back(interpolate_layer );  //
+//                        .push_back(lm_layer2);
+
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext);
+      else
+        logits = output->apply(embeddings, decoderContext);
+
+      //@TODO this is not necessary right
+      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      auto lm_interpolate_logits = lm_interpolate->apply(embeddings, decoderContext, alignedContext);
+      logits = logits + lm_interpolate_logits*lm_logits;
+    }else {
+      ABORT("Unknown interpolation type: {}", opt<std::string>("interpolation-type"));
+    }
 
     auto lm_decoderStates_ = New<DecoderState>(lm_decoderStates, lm_logits, state->getLMState()->getEncoderStates());
       

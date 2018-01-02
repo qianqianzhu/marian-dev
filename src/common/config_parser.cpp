@@ -247,6 +247,9 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
      "Ignore the model configuration saved in npz file")
     ("type", po::value<std::string>()->default_value("amun"),
       "Model type (possible values: amun, nematus, s2s, multi-s2s, s2s_lmint, transformer)")
+    ("interpolation-type", po::value<std::string>()->default_value("shallow"),
+      "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-matrix, deep,\
+      extra-output")
     ("dim-vocabs", po::value<std::vector<int>>()
       ->multitoken()
       ->default_value(std::vector<int>({0, 0}), "0 0"),
@@ -685,6 +688,7 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
 
   SET_OPTION("ignore-model-config", bool);
   SET_OPTION("type", std::string);
+  SET_OPTION("interpolation-type", std::string);
   SET_OPTION("dim-vocabs", std::vector<int>);
   SET_OPTION("dim-emb", int);
   SET_OPTION("dim-rnn", int);
