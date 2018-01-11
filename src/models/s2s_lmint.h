@@ -43,7 +43,6 @@ private:
     rnn.push_back(baseCell);
 
     // Add more cells to RNN (stacked RNN)
-    //@TODO not really supported
     for(int i = 2; i <= decoderLayers; ++i) {
       // deep transition
       auto highCell = rnn::stacked_cell(graph);
@@ -291,7 +290,7 @@ public:
       std::string tiedPrefix = prefix_ + "_lm_Wemb";
       //if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
       //  tiedPrefix = "_lm_Wemb"; We don't have source tied embeddings for the LM
-      layer2.tie_transposed("W", tiedPrefix);
+      lm_layer2.tie_transposed("W", tiedPrefix);
     }
 
     // assemble layers into MLP and apply to embeddings, decoder context and
@@ -325,7 +324,7 @@ public:
       //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
       auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
       logits = logits + alpha*lm_logits;
-    }else if(opt<std::string>("interpolation-type") == "shallow-matrix") {
+    }else if(opt<std::string>("interpolation-type") == "shallow-vector") {
       if(alignedContext)
         logits = output->apply(embeddings, decoderContext, alignedContext);
       else
@@ -334,8 +333,8 @@ public:
 
       lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
       //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
-      //@TODO ask marcin if there's any 3D tensors here
-      //@TODO use shape() here to get some details about the size
+      //@TODO ask marcin how you multiply 2d by 3d
+      //@TODO shape shows() that we produce what I think we do
       auto alpha = graph->param("alpha", {1, dimTrgVoc}, keywords::init=inits::from_value(0.2));
       logits = logits + alpha*lm_logits;
     }else if(opt<std::string>("interpolation-type") == "deep") {
@@ -360,7 +359,8 @@ public:
 
         */
       auto interpolate_layer = mlp::dense(graph)           //
-        ("prefix", prefix_ + "_lm_interpolate")  //
+        ("prefix", prefix_ + "_lm_interpolate")
+        ("activation", mlp::act::tanh)  //
         ("dim", dimTrgVoc);
 
        // assemble layers into MLP and apply to embeddings, decoder context and

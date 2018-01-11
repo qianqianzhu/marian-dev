@@ -248,7 +248,7 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
     ("type", po::value<std::string>()->default_value("amun"),
       "Model type (possible values: amun, nematus, s2s, multi-s2s, s2s_lmint, transformer)")
     ("interpolation-type", po::value<std::string>()->default_value("shallow"),
-      "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-matrix, deep,\
+      "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-vector, deep,\
       extra-output")
     ("dim-vocabs", po::value<std::vector<int>>()
       ->multitoken()
