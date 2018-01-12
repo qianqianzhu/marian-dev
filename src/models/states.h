@@ -64,6 +64,10 @@ public:
   virtual void setProbs(Expr probs) { probs_ = probs; }
 
   virtual Ptr<DecoderState> select(const std::vector<size_t>& selIdx, int beamSize) {
+    if (lmState_) {
+      Ptr<DecoderState> lmState_new = lmState_->select(selIdx, beamSize);
+      return New<DecoderState>(states_.select(selIdx, beamSize), probs_, encStates_, lmState_new);
+    }
     return New<DecoderState>(states_.select(selIdx, beamSize), probs_, encStates_);
   }
 
