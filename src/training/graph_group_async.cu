@@ -24,7 +24,9 @@ void AsyncGraphGroup::fetchParams(Tensor oldParams,
     threads.emplace_back(std::thread(
         [&](int idx, int pos) {
           // individual mutex per-shard
-          std::lock_guard<std::mutex> guard(shardSync_[idx]);
+          // You don't need to lock here. If you have a newer model to fetch
+          // All the better
+          //std::lock_guard<std::mutex> guard(shardSync_[idx]);
           oldParams->subtensor(pos, params[idx]->size())->copyFrom(params[idx]);
         },
         idx,
