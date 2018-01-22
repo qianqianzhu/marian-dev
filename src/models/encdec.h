@@ -299,6 +299,8 @@ protected:
     if(options_->has("original-type"))
       modelParams["type"] = options_->getOptions()["original-type"];
 
+    modelParams["version"] = PROJECT_VERSION_FULL;
+
     Config::AddYamlToNpz(modelParams, "special:model.yml", name);
   }
 
@@ -311,7 +313,7 @@ protected:
 
     decoder["mini-batch"] = opt<size_t>("valid-mini-batch");
     decoder["maxi-batch"] = opt<size_t>("valid-mini-batch") > 1 ? 100 : 1;
-    decoder["maxi-batch-sort"] = opt<size_t>("valid-mini-batch") > 1 ? "src" : "none";
+    decoder["maxi-batch-sort"] = opt<size_t>("valid-mini-batch") > 1 ? "trg" : "none";
 
     decoder["relative-paths"] = false;
 
@@ -341,6 +343,7 @@ public:
         "dec-cell-high-depth",
         "skip",
         "layer-normalization",
+        "right-left",
         "special-vocab",
         "tied-embeddings",
         "tied-embeddings-src",
@@ -362,8 +365,10 @@ public:
 
   void push_back(Ptr<DecoderBase> decoder) { decoders_.push_back(decoder); }
 
-  virtual void load(Ptr<ExpressionGraph> graph, const std::string& name) {
-    graph->load(name, !opt<bool>("ignore-model-config"));
+  virtual void load(Ptr<ExpressionGraph> graph,
+                    const std::string& name,
+                    bool markedReloaded = true) {
+    graph->load(name, markedReloaded && !opt<bool>("ignore-model-config"));
   }
 
   virtual void save(Ptr<ExpressionGraph> graph,
