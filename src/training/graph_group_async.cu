@@ -14,7 +14,8 @@ void AsyncGraphGroup::setScheduler(Ptr<Scheduler> scheduler) {
 }
 
 void AsyncGraphGroup::fetchParams(Tensor oldParams,
-                                  const std::vector<Tensor>& params) {
+                                  const std::vector<Tensor>& params,
+                                  int device_id) {
   // @TODO read guard on parameters
   int pos = 0;
 
@@ -36,7 +37,9 @@ void AsyncGraphGroup::fetchParams(Tensor oldParams,
   }
 }
 
-void AsyncGraphGroup::pushGradients(Tensor newGrads, size_t batch_words) {
+void AsyncGraphGroup::pushGradients(Tensor newGrads,
+                                    size_t batch_words,
+                                    int device_id) {
   // add instead of copy?
   std::vector<std::thread> threads;
   int pos = 0;
