@@ -271,6 +271,8 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
     ("interpolation-type", po::value<std::string>()->default_value("shallow"),
       "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-vector, deep,\
       extra-output")
+    ("trainable-interpolation", po::value<bool>()->zero_tokens()->default_value(false),
+     "Enable trainable lm for the lm interpolation models.")
     ("dim-vocabs", po::value<std::vector<int>>()
       ->multitoken()
       ->default_value(std::vector<int>({0, 0}), "0 0"),
@@ -718,6 +720,7 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   SET_OPTION("ignore-model-config", bool);
   SET_OPTION("type", std::string);
   SET_OPTION("interpolation-type", std::string);
+  SET_OPTION("trainable-interpolation", bool);
   SET_OPTION("dim-vocabs", std::vector<int>);
   SET_OPTION("dim-emb", int);
   SET_OPTION("dim-rnn", int);

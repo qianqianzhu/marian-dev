@@ -37,7 +37,7 @@ private:
                          ("prefix", paramPrefix)  //
                          ("final", i > 1)         //
                          ("transition", transition)
-                         ("fixed", true));
+                         ("fixed", opt<bool>("trainable-interpolation")));
     }
     // Add cell to RNN (first layer)
     rnn.push_back(baseCell);
@@ -50,7 +50,7 @@ private:
       for(int j = 1; j <= decoderHighDepth; j++) {
         auto paramPrefix
             = prefix_ + "_l" + std::to_string(i) + "_lm_cell" + std::to_string(j);
-        highCell.push_back(rnn::cell(graph)("prefix", paramPrefix)("fixed", true));
+        highCell.push_back(rnn::cell(graph)("prefix", paramPrefix)("fixed", opt<bool>("trainable-interpolation")));
       }
 
       // Add cell to RNN (more layers)
@@ -278,13 +278,13 @@ public:
         ("nematus-normalization",
          options_->has("original-type")
              && opt<std::string>("original-type") == "nematus")
-        ("fixed", true);
+        ("fixed", opt<bool>("trainable-interpolation"));
 
 
     auto lm_layer2 = mlp::dense(graph)           //
         ("prefix", prefix_ + "_lm_ff_logit_l2")  //
         ("dim", dimTrgVoc)
-        ("fixed", true);
+        ("fixed", opt<bool>("trainable-interpolation"));
 
     if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
       std::string tiedPrefix = prefix_ + "_lm_Wemb";
