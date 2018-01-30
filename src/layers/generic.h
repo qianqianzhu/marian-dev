@@ -50,12 +50,8 @@ public:
   Dense(Ptr<ExpressionGraph> graph, Ptr<Options> options)
       : Layer(graph, options) {}
 
-  void tie(const std::string& param, const std::string& tied) {
-    tiedParams_[param] = graph_->get(tied);
-  }
-
   void tie_transposed(const std::string& param, const std::string& tied) {
-    tiedParams_[param] = transpose(graph_->get(tied));
+    tiedParams_[param] = graph_->get(tied);
   }
 
   Expr apply(const std::vector<Expr>& inputs) {
@@ -79,14 +75,18 @@ public:
     size_t i = 0;
     for(auto&& in : inputs) {
       Expr W;
+      bool transposeW = false;
       std::string nameW = "W" + std::to_string(i);
-      if(tiedParams_.count(nameW))
+      if(tiedParams_.count(nameW)) {
         W = tiedParams_[nameW];
-      else
+        transposeW = true;
+      }
+      else {
         W = g->param(name + "_" + nameW,
                      {in->shape()[-1], dim},
                      keywords::init = inits::glorot_uniform,
                      keywords::fixed = fixed);
+      }
 
       Expr b;
       std::string nameB = "b" + std::to_string(i);
@@ -111,7 +111,7 @@ public:
                                keywords::fixed = fixed);
 
           outputs.push_back(
-              layer_norm(affine(in, W, b), ln_s, ln_b, NEMATUS_LN_EPS));
+              layer_norm(affine(in, W, b, false, transposeW), ln_s, ln_b, NEMATUS_LN_EPS));
         } else {
           auto gamma = g->param(name + "_gamma" + std::to_string(i),
                                 {1, dim},
@@ -119,11 +119,11 @@ public:
                                 keywords::fixed = fixed);
 
           params_.push_back(gamma);
-          outputs.push_back(layer_norm(dot(in, W), gamma, b));
+          outputs.push_back(layer_norm(dot(in, W, false, transposeW), gamma, b));
         }
 
       } else {
-        outputs.push_back(affine(in, W, b));
+        outputs.push_back(affine(in, W, b, false, transposeW));
       }
       i++;
     }
@@ -152,15 +152,18 @@ public:
     auto activation = options_->get<act>("activation", act::linear);
 
     Expr W;
+    bool transposeW = false;
     std::string nameW = "W";
-    if(tiedParams_.count(nameW))
+    if(tiedParams_.count(nameW)) {
+      transposeW = true;
       W = tiedParams_[nameW];
-    else
+    }
+    else {
       W = g->param(name + "_" + nameW,
                    {input->shape()[-1], dim},
                    keywords::init = inits::glorot_uniform,
                    keywords::fixed = fixed);
-
+    }
     Expr b;
     std::string nameB = "b";
     if(tiedParams_.count(nameB))
@@ -178,16 +181,17 @@ public:
         auto ln_b
             = g->param(name + "_ln_b", {1, dim}, keywords::init = inits::zeros, keywords::fixed = fixed);
 
-        out = layer_norm(affine(input, W, b), ln_s, ln_b, NEMATUS_LN_EPS);
+        out = layer_norm(affine(input, W, b, false, transposeW),
+                         ln_s, ln_b, NEMATUS_LN_EPS);
       } else {
         auto gamma = g->param(
             name + "_gamma", {1, dim}, keywords::init = inits::from_value(1.0), keywords::fixed = fixed);
 
         params_.push_back(gamma);
-        out = layer_norm(dot(input, W), gamma, b);
+        out = layer_norm(dot(input, W, false, transposeW), gamma, b);
       }
     } else {
-      out = affine(input, W, b);
+      out = affine(input, W, b, false, transposeW);
     }
 
     switch(activation) {

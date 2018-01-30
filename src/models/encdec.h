@@ -444,6 +444,10 @@ public:
 
     auto cost = Cost(nextState->getProbs(), trgIdx, trgMask, costType, ls);
 
+    if(opt<std::string>("type")=="s2s_lmint" && opt<double>("lm-cost") > 0.0) {
+      cost = cost + opt<float>("-lm-cost")*Cost(nextState->getLMState()->getProbs(), trgIdx, trgMask, costType, ls);
+    }
+
     if(options_->has("guided-alignment") && !inference_) {
       auto alignments = decoders_[0]->getAlignments();
       ABORT_IF(alignments.empty(), "Model does not seem to support alignments");

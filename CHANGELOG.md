@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [1.3.0] - 2018-01-24
+
+### Added
+- Added SQLite3 based corpus storage for on-disk shuffling etc. with `--sqlite`
+- Added asynchronous maxi-batch preloading
+- Using transpose in SGEMM to tie embeddings in output layer
+
 ## [1.2.1] - 2018-01-19
 
 ### Fixed
