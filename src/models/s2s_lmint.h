@@ -291,6 +291,13 @@ public:
       //if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
       //  tiedPrefix = "_lm_Wemb"; We don't have source tied embeddings for the LM
       lm_layer2.tie_transposed("W", tiedPrefix);
+    } else if (opt<bool>("lm-pretrained-embeddings")) {
+      if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
+        std::string tiedPrefix = prefix_ + "_Wemb";
+      if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
+        tiedPrefix = "Wemb";
+      lm_layer2.tie_transposed("W", tiedPrefix);
+      }
     }
 
     // assemble layers into MLP and apply to embeddings, decoder context and
@@ -343,8 +350,10 @@ public:
       else
         logits = output->apply(embeddings, decoderContext, lm_decoderContext);
 
-      //@TODO this is not necessary right
-      lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      //@TODO this *should* only be necessary if we are doing something with the cost
+      if (opt<double>("lm-cost") > 0.0) {
+        lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      }
     }else if(opt<std::string>("interpolation-type") == "extra-output") {
         /*
       auto lm_layer1 = mlp::dense(graph)                                //
@@ -378,7 +387,17 @@ public:
       lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
       auto lm_interpolate_logits = lm_interpolate->apply(embeddings, decoderContext, alignedContext);
       logits = logits + lm_interpolate_logits*lm_logits;
-    }else {
+    }else if(opt<std::string>("interpolation-type") == "cost-only") {
+      if(alignedContext)
+        logits = output->apply(embeddings, decoderContext, alignedContext);
+      else
+        logits = output->apply(embeddings, decoderContext, lm_decoderContext);
+
+      //@TODO this *should* only be necessary if we are doing something with the cost
+      if (opt<double>("lm-cost") > 0.0) {
+        lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
+      }
+    } else {
       ABORT("Unknown interpolation type: {}", opt<std::string>("interpolation-type"));
     }
 

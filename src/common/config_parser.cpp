@@ -270,11 +270,13 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
       "Model type (possible values: amun, nematus, s2s, multi-s2s, s2s_lmint, transformer)")
     ("interpolation-type", po::value<std::string>()->default_value("shallow"),
       "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-vector, deep,\
-      extra-output")
+      extra-output, cost-only")
     ("trainable-interpolation", po::value<bool>()->zero_tokens()->default_value(false),
      "Enable trainable lm for the lm interpolation models.")
-    ("lm-cost", po::value<double>()->default_value(0.0),
+    ("lm-cost", po::value<float>()->default_value(0.0f),
      "Add a training cost with an LM.")
+    ("lm-pretrained-embeddings", po::value<bool>()->zero_tokens()->default_value(false),
+     "Use the LM embeddings for both the LM and the TM RNN.")
     ("dim-vocabs", po::value<std::vector<int>>()
       ->multitoken()
       ->default_value(std::vector<int>({0, 0}), "0 0"),
@@ -725,6 +727,8 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   SET_OPTION("type", std::string);
   SET_OPTION("interpolation-type", std::string);
   SET_OPTION("trainable-interpolation", bool);
+  SET_OPTION("lm-cost", float);
+  SET_OPTION("lm-pretrained-embeddings", bool);
   SET_OPTION("dim-vocabs", std::vector<int>);
   SET_OPTION("dim-emb", int);
   SET_OPTION("dim-rnn", int);

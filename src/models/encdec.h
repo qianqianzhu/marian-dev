@@ -83,11 +83,16 @@ public:
         ("dimVocab", dimVoc)             //
         ("dimEmb", dimEmb);
 //No source tied embeddings in the LM
-    //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
-    //  yEmbFactory("prefix", "Wemb");
-    //else
-    yEmbFactory("prefix", prefix_ + "_lm_Wemb"); //Make fixed
-    yEmbFactory("fixed", true);
+    if(opt<bool>("lm-pretrained-embeddings") && (opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))){
+      yEmbFactory("prefix", "Wemb");
+    }
+    else if (opt<bool>("lm-pretrained-embeddings")){
+      yEmbFactory("prefix", prefix_ + "_Wemb");
+    }
+    else{
+      yEmbFactory("prefix", prefix_ + "_lm_Wemb"); //Make fixed
+    }
+    yEmbFactory("fixed", !opt<bool>("trainable-interpolation"));
 /*@TODO I have already loaded them as fixed, do I need to specify them as fixed here as well
     if(options_->has("embedding-fix-trg"))
       yEmbFactory("fixed", opt<bool>("embedding-fix-trg"));
@@ -137,10 +142,16 @@ public:
         ("dimVocab", dimTrgVoc)          //
         ("dimEmb", dimTrgEmb);
 
-    //if(opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))
-    //  yEmbFactory("prefix", "Wemb"); //No source tied embeddings for the LM
-    yEmbFactory("prefix", prefix_ + "_lm_Wemb");
-    yEmbFactory("fixed", true); //Fixed embeddings for the target side.
+    if(opt<bool>("lm-pretrained-embeddings") && (opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all"))) {
+      yEmbFactory("prefix", "Wemb");
+    }
+    else if (opt<bool>("lm-pretrained-embeddings")){
+      yEmbFactory("prefix", prefix_ + "_Wemb");
+    }
+    else {
+      yEmbFactory("prefix", prefix_ + "_lm_Wemb");
+    }
+    yEmbFactory("fixed", !opt<bool>("trainable-interpolation")); //Fixed embeddings for the target side.
 
     auto yEmb = yEmbFactory.construct();
 
@@ -444,7 +455,7 @@ public:
 
     auto cost = Cost(nextState->getProbs(), trgIdx, trgMask, costType, ls);
 
-    if(opt<std::string>("type")=="s2s_lmint" && opt<double>("lm-cost") > 0.0) {
+    if(opt<std::string>("type")=="s2s_lmint" && opt<float>("lm-cost") > 0.0f) {
       cost = cost + opt<float>("-lm-cost")*Cost(nextState->getLMState()->getProbs(), trgIdx, trgMask, costType, ls);
     }
 
