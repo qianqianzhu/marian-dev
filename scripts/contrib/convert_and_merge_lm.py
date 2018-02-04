@@ -8,7 +8,7 @@ import numpy
 def outputNPZ(ouput_dict, output_file):
     numpy.savez(output_file, **ouput_dict)
 
-def convertNPZ(input_file):
+def convertNPZ(input_file, sharedTRG=False, sharedALL=False):
     '''Converts all the decoder* matrices in the NPZ file to decoder_lm*'''
     input_dict = dict(numpy.load(input_file))
     new_dict = dict()
@@ -17,7 +17,12 @@ def convertNPZ(input_file):
         if 'decoder' not in key:
             new_dict[key] = input_dict[key]
         else:
-            new_key = key.replace('decoder', 'decoder_lm')
+            if sharedTRG and key == 'decoder_Wemb':
+                new_key = key
+            elif sharedALL and key == 'decoder_Wemb':
+                new_key = "Wemb"
+            else:
+                new_key = key.replace('decoder', 'decoder_lm')
             new_dict[new_key] = input_dict[key]
 
     # Save back to the array
@@ -43,7 +48,7 @@ def mergeNPZ(input_NMT_dict1, input_LM_dict2, convert=True):
 
 if __name__ == '__main__':
     if len(argv) != 3 and len(argv) != 4 and len(argv) != 5:
-        print("Usage: " + argv[0] + " input.npz output.npz #To convert npz to an LM_NPZ")
+        print("Usage: " + argv[0] + " input.npz output.npz [sharedtype] #To convert npz to an LM_NPZ. Optionally specificy sharedTRG or sharedALL for google style interpolation.")
         print("Usage: " + argv[0] + " input.NMT.npz input.LM.npz output.npz [true] #Take "\
          "a NMT and LM files and merge them. if the last parameter is set to false, the lm "\
          "file wouldn't be converted first.")
@@ -52,8 +57,15 @@ if __name__ == '__main__':
         new_dict = convertNPZ(argv[1])
         outputNPZ(new_dict, argv[2])
     elif len(argv) == 4:
-        new_dict = mergeNPZ(argv[1], argv[2])
-        outputNPZ(new_dict, argv[3])
+        if argv[3] == "sharedTRG":
+            new_dict = convertNPZ(argv[1], True)
+            outputNPZ(new_dict, argv[2])
+        elif argv[3] == "sharedALL":
+            new_dict = convertNPZ(argv[1], False, True)
+            outputNPZ(new_dict, argv[2])
+        else:
+            new_dict = mergeNPZ(argv[1], argv[2])
+            outputNPZ(new_dict, argv[3])
     else:
         new_dict = mergeNPZ(argv[1], argv[2], strtobool(argv[4]))
         outputNPZ(new_dict, argv[3])

@@ -456,7 +456,7 @@ public:
     auto cost = Cost(nextState->getProbs(), trgIdx, trgMask, costType, ls);
 
     if(opt<std::string>("type")=="s2s_lmint" && opt<float>("lm-cost") > 0.0f) {
-      cost = cost + opt<float>("-lm-cost")*Cost(nextState->getLMState()->getProbs(), trgIdx, trgMask, costType, ls);
+      cost = cost + opt<float>("lm-cost")*Cost(nextState->getLMState()->getProbs(), trgIdx, trgMask, costType, ls);
     }
 
     if(options_->has("guided-alignment") && !inference_) {

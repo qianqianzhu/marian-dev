@@ -286,20 +286,21 @@ public:
         ("dim", dimTrgVoc)
         ("fixed", !opt<bool>("trainable-interpolation"));
 
-    if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
+    
+    if (opt<bool>("lm-pretrained-embeddings") && (opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings"))) {
+        std::string tiedPrefix;
+      if(opt<bool>("tied-embeddings") && !opt<bool>("tied-embeddings-all")) {
+        tiedPrefix = prefix_ + "_Wemb";
+      } else if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src")) {
+        tiedPrefix = "Wemb";
+      }
+      lm_layer2.tie_transposed("W", tiedPrefix);
+    } else if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
       std::string tiedPrefix = prefix_ + "_lm_Wemb";
       //if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
       //  tiedPrefix = "_lm_Wemb"; We don't have source tied embeddings for the LM
       lm_layer2.tie_transposed("W", tiedPrefix);
-    } else if (opt<bool>("lm-pretrained-embeddings")) {
-      if(opt<bool>("tied-embeddings") || opt<bool>("tied-embeddings-all")) {
-        std::string tiedPrefix = prefix_ + "_Wemb";
-      if(opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings-src"))
-        tiedPrefix = "Wemb";
-      lm_layer2.tie_transposed("W", tiedPrefix);
-      }
     }
-
     // assemble layers into MLP and apply to embeddings, decoder context and
     // aligned source context
     auto lm_output = mlp::mlp(graph)         //
@@ -394,7 +395,7 @@ public:
         logits = output->apply(embeddings, decoderContext, lm_decoderContext);
 
       //@TODO this *should* only be necessary if we are doing something with the cost
-      if (opt<double>("lm-cost") > 0.0) {
+      if (opt<float>("lm-cost") > 0.0f) {
         lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
       }
     } else {
