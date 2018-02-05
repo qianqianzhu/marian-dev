@@ -92,7 +92,7 @@ public:
     else{
       yEmbFactory("prefix", prefix_ + "_lm_Wemb"); //Make fixed
     }
-    yEmbFactory("fixed", !opt<bool>("trainable-interpolation"));
+    yEmbFactory("fixed", (!opt<bool>("trainable-interpolation") || !opt<bool>("lm-pretrained-embeddings")));
 /*@TODO I have already loaded them as fixed, do I need to specify them as fixed here as well
     if(options_->has("embedding-fix-trg"))
       yEmbFactory("fixed", opt<bool>("embedding-fix-trg"));
