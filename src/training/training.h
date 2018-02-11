@@ -2,7 +2,7 @@
 
 #include "common/config.h"
 #include "data/batch_generator.h"
-#include "data/corpus.h"
+#include "data/corpus_sqlite.h"
 #include "models/model_task.h"
 #include "training/scheduler.h"
 #include "training/validator.h"
@@ -20,7 +20,12 @@ public:
   void run() {
     using namespace data;
 
-    auto dataset = New<Corpus>(options_);
+    Ptr<CorpusBase> dataset;
+    if(!options_->get<std::string>("sqlite").empty())
+      dataset = New<CorpusSQLite>(options_);
+    else
+      dataset = New<Corpus>(options_);
+
     dataset->prepare();
 
     Ptr<BatchStats> stats;
@@ -37,6 +42,7 @@ public:
 
     if((options_->has("valid-sets") || options_->has("valid-script-path"))
        && options_->get<size_t>("valid-freq") > 0) {
+
       for(auto validator : Validators(dataset->getVocabs(), options_))
         scheduler->addValidator(validator);
     }
@@ -45,7 +51,7 @@ public:
     model->setScheduler(scheduler);
     model->load();
 
-    auto batchGenerator = New<BatchGenerator<Corpus>>(dataset, options_, stats);
+    auto batchGenerator = New<BatchGenerator<CorpusBase>>(dataset, options_, stats);
 
     scheduler->started();
     while(scheduler->keepGoing()) {

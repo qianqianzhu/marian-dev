@@ -12,8 +12,8 @@ typedef std::vector<WordMask> SentBatch;
 
 CorpusIterator::CorpusIterator() : pos_(-1), tup_(0) {}
 
-CorpusIterator::CorpusIterator(Corpus& corpus)
-    : corpus_(&corpus), pos_(0), tup_(corpus_->next()) {}
+CorpusIterator::CorpusIterator(CorpusBase* corpus)
+    : corpus_(corpus), pos_(0), tup_(corpus_->next()) {}
 
 void CorpusIterator::increment() {
   tup_ = corpus_->next();
@@ -32,6 +32,7 @@ Corpus::Corpus(Ptr<Config> options, bool translate)
     : options_(options),
       maxLength_(options_->get<size_t>("max-length")),
       maxLengthCrop_(options_->get<bool>("max-length-crop")),
+      rightLeft_(options_->get<bool>("right-left")),
       g_(Config::seed) {
   bool training = !translate;
 
@@ -51,7 +52,7 @@ Corpus::Corpus(Ptr<Config> options, bool translate)
 
   std::vector<int> maxVocabs = options_->get<std::vector<int>>("dim-vocabs");
 
-  if(training) {
+  if(training) { // training or scoring
     std::vector<Vocab> vocabs;
 
     if(vocabPaths.empty()) {
@@ -133,11 +134,12 @@ Corpus::Corpus(std::vector<std::string> paths,
                std::vector<Ptr<Vocab>> vocabs,
                Ptr<Config> options,
                size_t maxLength)
-    : DatasetBase(paths),
+    : CorpusBase(paths),
       options_(options),
       vocabs_(vocabs),
       maxLength_(maxLength ? maxLength : options_->get<size_t>("max-length")),
-      maxLengthCrop_(options_->get<bool>("max-length-crop")) {
+      maxLengthCrop_(options_->get<bool>("max-length-crop")),
+      rightLeft_(options_->get<bool>("right-left")) {
   ABORT_IF(paths_.size() != vocabs_.size(),
            "Number of corpus files and vocab files does not agree");
 
@@ -170,6 +172,9 @@ SentenceTuple Corpus::next() {
           words.resize(maxLength_);
           words.back() = 0;
         }
+        
+        if(rightLeft_)
+          std::reverse(words.begin(), words.end() - 1);
 
         tup.push_back(words);
       }

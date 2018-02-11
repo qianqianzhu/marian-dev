@@ -12,6 +12,7 @@ private:
 
   Ptr<Config> options_;
   std::vector<Ptr<ValidatorBase>> validators_;
+  bool validated_{false};
 
   float costSum{0};
   size_t samples{0};
@@ -73,8 +74,9 @@ public:
     return (state_->batches % options_->get<size_t>("save-freq") == 0);
   }
 
-  void validate(const std::vector<Ptr<ExpressionGraph>>& graphs) {
-    if(state_->batches % options_->get<size_t>("valid-freq") != 0)
+  void validate(const std::vector<Ptr<ExpressionGraph>>& graphs, bool final = false) {
+    if(validated_ || (state_->batches % options_->get<size_t>("valid-freq") != 0
+                      && !final))
       return;
 
     bool firstValidator = true;
@@ -103,6 +105,8 @@ public:
         state_->newStalled(validator->stalled());
       firstValidator = false;
     }
+
+    validated_ = true;
   }
 
   size_t stalled() {
@@ -147,7 +151,50 @@ public:
       wordsDisp = 0;
       samplesDisp = 0;
     }
+
+    validated_ = false;
   }
+
+
+  void update(float cost, int sentences, int words) {
+    costSum += cost * sentences;
+    samples += sentences;
+    samplesDisp += sentences;
+    wordsDisp += words;
+    state_->newBatch();
+
+    if(state_->batches % options_->get<size_t>("disp-freq") == 0) {
+      if(options_->get<bool>("lr-report")) {
+        LOG(info,
+            "Ep. {} : Up. {} : Sen. {} : Cost {:.2f} : Time {} : {:.2f} "
+            "words/s : L.r. {:.4e}",
+            state_->epochs,
+            state_->batches,
+            samples,
+            costSum / samplesDisp,
+            timer.format(2, "%ws"),
+            wordsDisp / std::stof(timer.format(5, "%w")),
+            state_->eta);
+      } else {
+        LOG(info,
+            "Ep. {} : Up. {} : Sen. {} : Cost {:.2f} : Time {} : {:.2f} "
+            "words/s",
+            state_->epochs,
+            state_->batches,
+            samples,
+            costSum / samplesDisp,
+            timer.format(2, "%ws"),
+            wordsDisp / std::stof(timer.format(5, "%w")));
+      }
+      timer.start();
+      costSum = 0;
+      wordsDisp = 0;
+      samplesDisp = 0;
+    }
+
+    validated_ = false;
+  }
+
 
   void load(const std::string& name) {
     std::string nameYaml = name + ".yml";
