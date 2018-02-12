@@ -49,6 +49,12 @@ public:
         if(scheduler_)
           scheduler_->load(name);
         builder_->load(graph_, name);
+      } else if(options_->has("pretrained-model")) {
+        std::string init = options_->get<std::string>("pretrained-model");
+        LOG(info,
+            "Initialize model weights with the pre-trained model {}",
+            init);
+        builder_->load(graph_, init, false);
       }
     }
   }
@@ -57,6 +63,9 @@ public:
     auto saveGraph = graph_;
     if(mvAvg_)
       saveGraph = mvAvgGraph_;
+
+    if(final && scheduler_)
+      scheduler_->validate({saveGraph}, true);
 
     save(saveGraph, final);
   }

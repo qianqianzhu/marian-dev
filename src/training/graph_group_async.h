@@ -32,12 +32,13 @@ protected:
   std::vector<Tensor> params_;
   std::vector<Ptr<TensorAllocator>> paramsAlloc_;
 
-  std::vector<Tensor> grads_;
+  std::vector<Tensor> grads_, bufferGrads_;
   std::vector<Ptr<TensorAllocator>> gradsAlloc_;
 
   std::vector<Ptr<OptimizerBase>> shardOpt_;
 
   int shardSize_;
+  std::vector<int> bufferCount;
 
   std::vector<Tensor> paramsAvg_;
   std::vector<Ptr<TensorAllocator>> paramsAllocAvg_;
@@ -47,6 +48,7 @@ protected:
   ThreadPool pool_;
 
   size_t tau_{1};
+  size_t gradientBufferSize_{1};
 
   virtual void init(Ptr<data::Batch> batch);
 
@@ -72,7 +74,8 @@ public:
         shardSync_{devices_.size()},
         movingAvg_{options_->get<float>("exponential-smoothing") > 0},
         mvDecay_{options_->get<float>("exponential-smoothing")},
-        tau_{options_->get<size_t>("optimizer-delay")} {
+        tau_{options_->get<size_t>("optimizer-delay")},
+        gradientBufferSize_{options_->get<size_t>("gradient-buffer")} {
     for(auto device : devices_) {
       auto graph = New<ExpressionGraph>();
       graph->setDevice(device);
@@ -87,18 +90,32 @@ public:
 
   void load() {
     if(!options_->get<bool>("no-reload")) {
-      std::string init = options_->get<std::string>("model");
-      if(boost::filesystem::exists(init)) {
-        size_t i = 0;
+      std::string name = options_->get<std::string>("model");
+
+      if(boost::filesystem::exists(name)) {
         if(scheduler_)
-          scheduler_->load(init);
+          scheduler_->load(name);
+        size_t i = 0;
         for(auto graph : graphs_)
-          builders_[i++]->load(graph, init);
+          builders_[i++]->load(graph, name);
+      } else if(options_->has("pretrained-model")) {
+        std::string init = options_->get<std::string>("pretrained-model");
+        LOG(info,
+            "Initialize model weights with the pre-trained model {}",
+            init);
+        size_t i = 0;
+        for(auto graph : graphs_)
+          builders_[i++]->load(graph, init, false);
       }
     }
   }
 
-  void save(bool final = false) { save(graphs_[0], final); }
+  void save(bool final = false) {
+    if(final && scheduler_)
+      scheduler_->validate(graphs_, true);
+
+    save(graphs_[0], final);
+  }
 
   void save(Ptr<ExpressionGraph> graph, bool final = false) {
     int idx = 0;

@@ -53,14 +53,29 @@ void AsyncGraphGroup::pushGradients(Tensor newGrads,
         [&](int idx, int pos) {
           // individual mutex per-shard
           std::lock_guard<std::mutex> guard(shardSync_[idx]);
+
           grads_[idx]->copyFrom(newGrads->subtensor(pos, grads_[idx]->size()));
+
+          if (gradientBufferSize_ > 1) {
+            using namespace functional;
+            Element(_1 = _1 + _2, bufferGrads_[idx], grads_[idx]);
+            bufferCount[idx]++;
+
+            if (bufferCount[idx] < gradientBufferSize_) return;
+            
+            bufferCount[idx] = 0;
+          }
+
+          Tensor updater = (gradientBufferSize_ > 1)?bufferGrads_[idx]:grads_[idx];
 
           if(scaleLearningRate_) {
             shardOpt_[idx]->update(
-                params_[idx], grads_[idx], batch_words / avgBatchWords_);
+                params_[idx], updater, batch_words / avgBatchWords_);
           } else {
-            shardOpt_[idx]->update(params_[idx], grads_[idx]);
+            shardOpt_[idx]->update(params_[idx], updater);
           }
+
+          if (gradientBufferSize_ > 1) bufferGrads_[idx]->set(0);
 
           if(movingAvg_)
             updateMovingAverage(
@@ -99,6 +114,9 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
     int pos = 0;
     // parameter sharding
     for(auto device : devices_) {
+
+      bufferCount.push_back(0);
+
       int __size__ = min(shardSize_, totalSize);
       totalSize -= __size__;
 
@@ -127,6 +145,19 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
       allocator_->allocate(grad_, {1, __size__});
       gradsAlloc_.push_back(allocator_);
       grads_.push_back(grad_);
+
+      
+      if (gradientBufferSize_ > 1){
+        Ptr<TensorAllocator> bufferAlloc = New<TensorAllocator>(device);
+        Tensor bufferGrad_;
+
+        bufferAlloc->reserveExact(__size__ * sizeof(float));
+        bufferAlloc->allocate(bufferGrad_, {1, __size__});
+        
+        gradsAlloc_.push_back(bufferAlloc);
+        bufferGrad_->set(0);
+        bufferGrads_.push_back(bufferGrad_);
+      }
     }
   }
   if(movingAvg_) {
@@ -165,6 +196,9 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     thread_local size_t t = 0;
     thread_local size_t num_seen_words = 0;
     thread_local int t_id = 0;
+    thread_local float cost = 0;
+    thread_local int sentences = 0;
+    thread_local int words = 0;
 
     thread_local Tensor accGradients;
     thread_local Ptr<TensorAllocator> accAlloc;
@@ -191,10 +225,13 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     }
 
     graph->forward();
-    float cost = costNode->scalar();
+    cost += costNode->scalar();
     graph->backward();
 
     size_t batch_words = batch->words();
+    
+    words += batch->words();
+    sentences += batch->size();
 
     // Get batch stats
     if (tau_ > 0 && t < 3000) {
@@ -242,22 +279,21 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
         gradients->set(0);
     }
 
-    if(scheduler_) {
+    if(t % (tau_ * gradientBufferSize_) == 0 && scheduler_) {
       std::unique_lock<std::mutex> lock(schedulerMutex_);
 
       // Wait until the thread that wants to do validation is finished.
       pool_.wait_for_one(lock);
+      
+      cost /= (tau_ * gradientBufferSize_);
 
-      scheduler_->update(cost, batch);
+      scheduler_->update(cost, sentences, words);
+      sentences = 0;
+      words = 0;
+      cost = 0;
 
-      if(scheduler_->saving()) {
-        if(movingAvg_)
-          fetchParams(graph->params()->vals(), paramsAvg_, t_id);
-        this->save(graph);
-      }
-
-      if(scheduler_->validating()) {
-        // Wait with validation until all other threads are done with update.
+      if(scheduler_->saving() || scheduler_->validating()) {
+        // Wait with validation or saving until all other threads are done with update.
         // We want to reuse the graphs for validation, so they need to be in
         // a safe state.
         pool_.wait_for_others(lock);
@@ -265,9 +301,14 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
         if(movingAvg_)
           for(auto g : graphs_)
             fetchParams(g->params()->vals(), paramsAvg_, t_id);
-        scheduler_->validate(graphs_);
 
-        // Validation is done, tell other threads to continue work.
+        if(scheduler_->saving())
+          this->save(graph);
+
+        if(scheduler_->validating())
+          scheduler_->validate(graphs_);
+
+        // Validation or saving is done, tell other threads to continue work.
         pool_.notify_others();
       }
     }
