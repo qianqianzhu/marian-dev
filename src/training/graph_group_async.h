@@ -48,6 +48,7 @@ protected:
   ThreadPool pool_;
 
   size_t tau_{1};
+  size_t local_optimizer_duration_{3000};
   size_t gradientBufferSize_{1};
 
   virtual void init(Ptr<data::Batch> batch);
@@ -75,6 +76,7 @@ public:
         movingAvg_{options_->get<float>("exponential-smoothing") > 0},
         mvDecay_{options_->get<float>("exponential-smoothing")},
         tau_{options_->get<size_t>("optimizer-delay")},
+        local_optimizer_duration_{options_->get<size_t>("local-optimizer-batches")},
         gradientBufferSize_{options_->get<size_t>("gradient-buffer")} {
     for(auto device : devices_) {
       auto graph = New<ExpressionGraph>();

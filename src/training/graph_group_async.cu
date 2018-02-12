@@ -234,7 +234,7 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     sentences += batch->size();
 
     // Get batch stats
-    if (tau_ > 0 && t < 3000) {
+    if (tau_ > 0 && t < local_optimizer_duration_) {
       localOpt->update(graph, batch_words/avgBatchWords_);
       reversefetchParamsLocal(graph->params()->vals(),
                     params_, t_id);
@@ -242,10 +242,10 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
 
     }
     //Get batch stats
-    if (t == 4000) {
-      shardOpt_[t_id]->setB1(0.92);
-      shardOpt_[t_id]->setB2(0.998);
-    }
+    //if (t == 4000) {
+    //  shardOpt_[t_id]->setB1(0.92);
+    //  shardOpt_[t_id]->setB2(0.998);
+    //}
 
 
     Tensor gradients;
