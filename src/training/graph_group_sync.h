@@ -15,6 +15,7 @@ private:
   std::vector<Ptr<models::ModelBase>> builders_;
   std::vector<Ptr<ExpressionGraph>> graphs_;
   std::vector<size_t> devices_;
+  std::vector<size_t> batch_words_;
 
   std::vector<Tensor> params_;
   std::vector<Tensor> grads_;
@@ -41,6 +42,7 @@ public:
   SyncGraphGroup(Ptr<Config> options)
       : GraphGroup(options),
         devices_{options_->get<std::vector<size_t>>("devices")},
+        batch_words_{options_->get<std::vector<size_t>>("devices")},
         movingAvg_{options_->get<float>("exponential-smoothing") > 0},
         mvDecay_{options_->get<float>("exponential-smoothing")} {
     for(auto device : devices_) {

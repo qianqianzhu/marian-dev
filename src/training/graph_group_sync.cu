@@ -112,6 +112,7 @@ void SyncGraphGroup::execute(Ptr<data::Batch> batch) {
       if(batch->size() > 0) {
         auto costNode = builders_[idx]->build(graph, batch);
         graph->forward();
+        batch_words_[idx] = batch->words();
         costs[idx] = costNode->scalar();
         graph->backward();
       }
@@ -139,7 +140,11 @@ void SyncGraphGroup::execute(Ptr<data::Batch> batch) {
         i++;
       }
 
-      shardOpt_[idx]->update(params_[idx], grads_[idx]);
+      if(scaleLearningRate_) {
+        shardOpt_[idx]->update(params_[idx], grads_[idx], batch_words_[idx]/avgBatchWords_);
+      } else {
+        shardOpt_[idx]->update(params_[idx], grads_[idx]);
+      }
 
       if(movingAvg_)
         updateMovingAverage(
