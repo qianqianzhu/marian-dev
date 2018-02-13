@@ -453,7 +453,29 @@ public:
     std::string costType = opt<std::string>("cost-type");
     float ls = inference_ ? 0.f : opt<float>("label-smoothing");
 
-    auto cost = Cost(nextState->getProbs(), trgIdx, trgMask, costType, ls);
+    Expr weights;
+    bool sentenceWeighting = false;
+
+    if(options_->has("data-weighting") && !inference_) {
+      ABORT_IF(batch->getDataWeights().empty(),
+               "Vector of weights is unexpectedly empty!");
+
+      sentenceWeighting
+          = options_->get<std::string>("data-weighting-type") == "sentence";
+      int dimBatch = batch->size();
+      int dimWords = sentenceWeighting ? 1 : batch->back()->batchWidth();
+
+      weights = graph->constant(
+          {1, dimWords, dimBatch, 1},
+          keywords::init = inits::from_vector(batch->getDataWeights()));
+    }
+
+    auto cost = Cost(nextState->getProbs(),
+                     trgIdx,
+                     trgMask,
+                     costType,
+                     ls,
+                     weights);
 
     if(opt<std::string>("type")=="s2s_lmint" && opt<float>("lm-cost") > 0.0f) {
       cost = cost + opt<float>("lm-cost")*Cost(nextState->getLMState()->getProbs(), trgIdx, trgMask, costType, ls);
@@ -492,8 +514,8 @@ public:
       std::vector<size_t> lengths(numFiles, i);
       bool fits = true;
       do {
-        auto batch = data::CorpusBatch::fakeBatch(
-            lengths, batchSize, options_->has("guided-alignment"));
+        auto batch = data::CorpusBatch::fakeBatch(lengths, batchSize, options_);
+
         build(graph, batch);
         fits = graph->fits();
         if(fits)

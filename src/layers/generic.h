@@ -241,5 +241,6 @@ Expr Cost(Expr logits,
           Expr indices,
           Expr mask,
           std::string costType = "cross-entropy",
-          float smoothing = 0);
+          float smoothing = 0,
+          Expr weights = nullptr);
 }
