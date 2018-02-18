@@ -155,8 +155,8 @@ private:
       eps_ = params[2];
   }
 
-  float beta1_ = 0.91;
-  float beta2_ = 0.998;
+  float beta1_ = 0.9;
+  float beta2_ = 0.999;
   float eps_ = 1e-8;
   size_t t_;
 

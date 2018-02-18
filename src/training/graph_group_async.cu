@@ -199,16 +199,22 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     thread_local float cost = 0;
     thread_local int sentences = 0;
     thread_local int words = 0;
+    thread_local float max_batch_words = 1920.0;
+    thread_local float current_batch_words = 7200.0;
 
     thread_local Tensor accGradients;
     thread_local Ptr<TensorAllocator> accAlloc;
 
     //Thread local optimizer:
-    thread_local Ptr<OptimizerBase> localOpt = Ptr<OptimizerBase>(new Adam(options_->get<double>("learn-rate")));
+//    thread_local Ptr<OptimizerBase> localOpt = Ptr<OptimizerBase>(new Adam(options_->get<double>("learn-rate")));
 
-    if (t==0) {
-      localOpt->setB1(0.93f);
-      localOpt->setB1(0.997f);
+//    if (t==0) {
+//      localOpt->setB1(0.93f);
+//      localOpt->setB1(0.997f);
+//    }
+    if (current_batch_words > 1920) {
+    	current_batch_words = current_batch_words - 1.32;
+        avgBatchWords_ = current_batch_words;
     }
 
     if(!graph) {
@@ -236,16 +242,16 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     // Get batch stats
     if (tau_ > 0 && t < local_optimizer_duration_) {
       localOpt->update(graph, batch_words/avgBatchWords_);
-      reversefetchParamsLocal(graph->params()->vals(),
-                    params_, t_id);
+//      reversefetchParamsLocal(graph->params()->vals(),
+//                    params_, t_id);
       //shardOpt_[my_id]->updateState(localOpt, shardSize_, my_id);
 
     }
     //Get batch stats
-    if (t == 4000) {
-      shardOpt_[t_id]->setB1(0.92);
-      shardOpt_[t_id]->setB2(0.998);
-    }
+//    if (t == 4000) {
+//      shardOpt_[t_id]->setB1(0.92);
+//      shardOpt_[t_id]->setB2(0.998);
+//    }
 
 
     Tensor gradients;
