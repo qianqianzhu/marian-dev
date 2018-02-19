@@ -7,7 +7,6 @@
 #include "tensors/tensor.h"
 
 #include "tensors/allocator.h"
-#include "tensors/device_gpu.h"
 
 #include "gpu/shape.h"
 #include "gpu/tmp.h"
@@ -50,7 +49,7 @@ __global__ void gElement(Functor functor,
 
 template <class Functor, class ...Tensors>
 void Element(Functor functor, Tensor out, Tensors ...tensors) {
-  cudaSetDevice(out->getDevice());
+  cudaSetDevice(out->getDevice().no);
 
   constexpr size_t K = sizeof...(tensors) + 1;
   gpu::Array<gpu::Tensor<float>, K> gTensors = {out, tensors...};
@@ -71,13 +70,13 @@ void Element(Functor functor, Tensor out, Tensors ...tensors) {
 
 void TransposeND(Tensor out, Tensor in, const std::vector<int>& vAxis);
 
-void Select(Ptr<Allocator<DeviceGPU>> allocator,
+void Select(Ptr<Allocator> allocator,
             Tensor out,
             Tensor in,
             int axis,
             const std::vector<size_t>&);
 
-void Insert(Ptr<Allocator<DeviceGPU>> allocator,
+void Insert(Ptr<Allocator> allocator,
             Tensor out,
             Tensor in,
             int axis,
@@ -209,7 +208,7 @@ void Add(Functor functor,
          float scale,
          Tensor out,
          Tensors... tensors) {
-  cudaSetDevice(out->getDevice());
+  cudaSetDevice(out->getDevice().no);
 
   Shape full = Shape::broadcast({out, tensors...});
 
