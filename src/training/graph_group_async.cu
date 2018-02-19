@@ -140,7 +140,7 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
 
       
       if (gradientBufferSize_ > 1){
-        Ptr<TensorAllocator> bufferAlloc = New<TensorAllocator>(device);
+        Ptr<TensorAllocator> bufferAlloc = New<TensorAllocator>(graph->getBackend());
         Tensor bufferGrad_;
 
         bufferAlloc->reserveExact(__size__ * sizeof(float));
