@@ -31,7 +31,7 @@ class AsyncGraphGroupDrop : public AsyncGraphGroup {
 
   std::vector<Ptr<TensorAllocator>> allocators;
 
-  Tensor newTensor(int size, int device);
+  Tensor newTensor(int size, Ptr<Backend> backend);
 
 protected:
   void init(Ptr<data::Batch> batch);
