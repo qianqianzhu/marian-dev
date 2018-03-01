@@ -129,9 +129,12 @@ void SyncGraphGroup::execute(Ptr<data::Batch> batch) {
     for(int idx = 0; idx < batches.size(); ++idx)
       pool.enqueue(task, idx);
   }
-
+  size_t total_batch_words = 0;
+  for (size_t mini_batch_words : batch_words_) {
+  	total_batch_words += mini_batch_words;
+  }
   {
-    auto task = [this, batches](size_t idx, int pos) {
+    auto task = [this, batches,total_batch_words](size_t idx, int pos) {
       grads_[idx]->set(0);
       int size = params_[idx]->size();
       int i = 0;
@@ -148,7 +151,7 @@ void SyncGraphGroup::execute(Ptr<data::Batch> batch) {
       }
 
       if(scaleLearningRate_) {
-        shardOpt_[idx]->update(params_[idx], grads_[idx], batch_words_[idx]/avgBatchWords_);
+        shardOpt_[idx]->update(params_[idx], grads_[idx], total_batch_words/avgBatchWords_);
       } else {
         shardOpt_[idx]->update(params_[idx], grads_[idx]);
       }
