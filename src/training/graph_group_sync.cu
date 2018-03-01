@@ -119,7 +119,7 @@ void SyncGraphGroup::execute(Ptr<data::Batch> batch) {
       if(batch->size() > 0) {
         auto costNode = builders_[idx]->build(graph, batch);
         graph->forward();
-        batch_words_[idx] = batch->words();
+        batch_words_[idx] = batch->wordsTrg();
         costs[idx] = costNode->scalar();
         graph->backward();
       }

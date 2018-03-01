@@ -219,9 +219,9 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     graph->backward();
 
     // Get batch stats
-    size_t batch_words = batch->words();
+    size_t batch_words = batch->wordsTrg();
     
-    words += batch->words();
+    words += batch->words(); //@ALHAM should this be wordsTrg?
     sentences += batch->size();
 
     Tensor gradients;
