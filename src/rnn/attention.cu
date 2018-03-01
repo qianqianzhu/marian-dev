@@ -1,7 +1,7 @@
 #include "attention.h"
 
 #include "graph/node_operators_binary.h"
-#include "kernels/tensor_operators.h"
+#include "tensors/tensor_operators.h"
 
 namespace marian {
 
@@ -9,7 +9,7 @@ namespace rnn {
 
 struct AttentionNodeOp : public NaryNodeOp {
   AttentionNodeOp(const std::vector<Expr>& nodes)
-      : NaryNodeOp(nodes, keywords::shape = newShape(nodes)) {}
+      : NaryNodeOp(nodes, newShape(nodes)) {}
 
   Shape newShape(const std::vector<Expr>& nodes) {
     Shape shape = Shape::broadcast({nodes[1], nodes[2]});

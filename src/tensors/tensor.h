@@ -75,11 +75,15 @@ public:
       std::copy(data(), data() + size(), v.data());
   }
 
-  void set(const std::vector<float> &v) {
+  void set(const float* begin, const float* end) {
     if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, v.data(), v.data() + v.size(), data());
+      gpu::copy(backend_, begin, end, data());
     else
-      std::copy(v.data(), v.data() + v.size(), data());
+      std::copy(begin, end, data());
+  }
+
+  void set(const std::vector<float> &v) {
+    set(v.data(), v.data() + v.size());
   }
 
   void set(float value) {
@@ -184,15 +188,5 @@ public:
 };
 
 typedef std::shared_ptr<TensorBase> Tensor;
-
-static Tensor operator<<(Tensor t, const std::vector<float> &v) {
-  t->set(v);
-  return t;
-}
-
-static Tensor operator>>(Tensor t, std::vector<float> &v) {
-  t->get(v);
-  return t;
-}
 
 }

@@ -54,7 +54,7 @@ void Config::loadModelParameters(const std::string& name) {
 void Config::GetYamlFromNpz(YAML::Node& yaml,
                             const std::string& varName,
                             const std::string& fName) {
-  yaml = YAML::Load(cnpy::npz_load(fName, varName).data);
+  yaml = YAML::Load(cnpy::npz_load(fName, varName)->data());
 }
 
 void Config::AddYamlToNpz(const YAML::Node& yaml,
@@ -65,4 +65,5 @@ void Config::AddYamlToNpz(const YAML::Node& yaml,
   unsigned shape = out.size() + 1;
   cnpy::npz_save(fName, varName, out.c_str(), &shape, 1, "a");
 }
+
 }

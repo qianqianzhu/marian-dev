@@ -1,6 +1,6 @@
 #include "training/graph_group_async.h"
-
-#include "kernels/tensor_operators.h"
+#include "tensors/tensor_operators.h"
+#include "functional/functional.h"
 
 namespace marian {
 
@@ -96,10 +96,16 @@ void AsyncGraphGroup::updateMovingAverage(Tensor paramsAvg,
 
 void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
   // initialize the parameters
-  for(size_t i = 0; i < graphs_.size(); ++i) {
-    // takes care of thead_local stuff
-    THREAD_GUARD(builders_[i]->build(graphs_[i], batch);
-                 graphs_[i]->forward(););
+
+  {
+    ThreadPool pool(graphs_.size(), graphs_.size());
+    for(size_t i = 0; i < graphs_.size(); ++i) {
+      auto init = [&](size_t i) {
+        builders_[i]->build(graphs_[i], batch);
+        graphs_[i]->forward();
+      };
+      pool.enqueue(init, i);
+    }
   }
 
   if(params_.size() == 0) {
@@ -253,11 +259,14 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
       std::unique_lock<std::mutex> lock(schedulerMutex_);
 
       // Wait until the thread that wants to do validation is finished.
-      pool_.wait_for_one(lock);
+      pool_->wait_for_one(lock);
       
       cost /= (tau_ * gradientBufferSize_);
 
-      scheduler_->update(cost, sentences, words);
+
+      //@TOOD AHAM
+      scheduler_->update(cost, batch);
+      //scheduler_->update(cost, sentences, words);
       sentences = 0;
       words = 0;
       cost = 0;
@@ -266,7 +275,7 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
         // Wait with validation or saving until all other threads are done with update.
         // We want to reuse the graphs for validation, so they need to be in
         // a safe state.
-        pool_.wait_for_others(lock);
+        pool_->wait_for_others(lock);
 
         if(movingAvg_)
           for(auto g : graphs_)
@@ -279,11 +288,19 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
           scheduler_->validate(graphs_);
 
         // Validation or saving is done, tell other threads to continue work.
-        pool_.notify_others();
+        pool_->notify_others();
       }
     }
   };
 
-  pool_.enqueue(task, batch);
+  pool_->enqueue(task, batch);
+}
+
+void AsyncGraphGroup::wait() {
+  {
+    std::unique_lock<std::mutex> lock(schedulerMutex_);
+    pool_->wait_for_others(lock);
+    pool_->notify_others();
+  }
 }
 }
