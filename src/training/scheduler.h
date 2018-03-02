@@ -119,12 +119,16 @@ public:
   }
 
   void update(float cost, Ptr<data::Batch> batch) {
+    update(cost, batch->size(), batch->words());
+  }
+
+  void update(float cost, int sentences, int words) {
     state_->validated = false;
 
-    state_->costSum += cost * batch->size();
-    state_->samples += batch->size();
-    state_->samplesDisp += batch->size();
-    state_->wordsDisp += batch->words();
+    state_->costSum += cost * sentences;
+    state_->samples += sentences;
+    state_->samplesDisp += sentences;
+    state_->wordsDisp += words;
     state_->newBatch();
 
     if(state_->batches % options_->get<size_t>("disp-freq") == 0) {
