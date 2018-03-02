@@ -221,7 +221,7 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     // Get batch stats
     size_t batch_words = batch->wordsTrg();
     
-    words += batch->words(); //@ALHAM should this be wordsTrg?
+    words += batch->words();
     sentences += batch->size();
 
     Tensor gradients;
@@ -265,8 +265,8 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
 
 
       //@TOOD AHAM
-      scheduler_->update(cost, batch);
-      //scheduler_->update(cost, sentences, words);
+      //scheduler_->update(cost, batch);
+      scheduler_->update(cost, sentences, words);
       sentences = 0;
       words = 0;
       cost = 0;
