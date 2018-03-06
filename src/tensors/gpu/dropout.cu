@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "tensors/dispatch.h"
+#include "tensors/tensor_operators.h"
 #include "tensors/gpu/backend.h"
 
 #define CUDA_CALL(x)                                  \

@@ -102,9 +102,16 @@ public:
     }
 
     size_t localBeamSize = beamSize_;
-    
-    auto nth = New<NthElement>(localBeamSize, dimBatch, graph->getDevice());
-    
+
+    // @TODO: unify this
+    Ptr<NthElement> nth;
+#ifdef CUDA_FOUND
+    if(graph->getDevice().type == DeviceType::gpu)
+      nth = New<NthElementGPU>(localBeamSize, dimBatch, graph->getDevice());
+    else
+#endif
+      nth = New<NthElementCPU>(localBeamSize, dimBatch);
+
     Beams beams(dimBatch);
     for(auto& beam : beams)
       beam.resize(localBeamSize, New<Hypothesis>());
@@ -134,7 +141,7 @@ public:
       if(first) {
         // no cost
         prevCosts = graph->constant({1, 1, 1, 1},
-                                    keywords::init = inits::from_value(0));
+                                    inits::from_value(0));
       } else {
         std::vector<float> beamCosts;
 
@@ -159,7 +166,7 @@ public:
 
         prevCosts
             = graph->constant({(int)localBeamSize, 1, dimBatch, 1},
-                              keywords::init = inits::from_vector(beamCosts));
+                              inits::from_vector(beamCosts));
       }
 
       //**********************************************************************
@@ -197,9 +204,8 @@ public:
       std::vector<float> outCosts;
 
       std::vector<size_t> beamSizes(dimBatch, localBeamSize);
-      
       nth->getNBestList(beamSizes, totalCosts->val(), outCosts, outKeys, first);
-      
+
       int dimTrgVoc = totalCosts->shape()[-1];
       beams = toHyps(outKeys, outCosts, dimTrgVoc, beams, states, localBeamSize, first);
 

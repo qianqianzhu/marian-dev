@@ -14,6 +14,7 @@
 #include "data/alignment.h"
 #include "data/batch.h"
 #include "data/dataset.h"
+#include "data/rng_engine.h"
 #include "data/vocab.h"
 
 namespace marian {
@@ -36,7 +37,7 @@ private:
 
 public:
   typedef Words value_type;
-  
+
   /**
    * @brief Creates an empty tuple with the given Id.
    */
@@ -83,7 +84,7 @@ public:
 
   auto begin() const -> decltype(tuple_.begin()) { return tuple_.begin(); }
   auto end() const -> decltype(tuple_.end()) { return tuple_.end(); }
-  
+
   auto rbegin() const -> decltype(tuple_.rbegin()) { return tuple_.rbegin(); }
   auto rend() const -> decltype(tuple_.rend()) { return tuple_.rend(); }
 
@@ -243,13 +244,33 @@ public:
   size_t words() const { return batches_[0]->batchWords(); }
 
   /**
+   * @brief The width of the source mini-batch. Num words + padded?
+   */
+  size_t width() const { return batches_[0]->batchWidth(); }
+
+  /**
+   * @brief The number of sentences in the batch, target words.
+   */
+  size_t sizeTrg() const { return batches_.back()->batchSize(); }
+
+  /**
+   * @brief The number of words for the longest sentence in the batch plus one.
+   */
+  size_t wordsTrg() const { return batches_.back()->batchWords(); };
+
+  /**
+   * @brief The width of the target mini-batch. Num words + padded?
+   */
+  size_t widthTrg() const { return batches_.back()->batchWidth(); };
+
+  /**
    * @brief The number of source and targets.
    */
   size_t sets() const { return batches_.size(); }
 
   /**
    * @brief Creates a batch filled with fake data. Used to determine the size of
-   * the object.
+   * the batch object.
    *
    * @param lengths List of subbatch sizes.
    * @param batchSize Number of sentences in the batch.
@@ -306,12 +327,12 @@ public:
         subs[i++].push_back(splitSubBatch);
     }
 
-    // create batches from splitted subbatches
+    // create batches from split subbatches
     std::vector<Ptr<Batch>> splits;
     for(auto subBatches : subs)
       splits.push_back(New<CorpusBatch>(subBatches));
 
-    // set sentence indices in splitted batches
+    // set sentence indices in split batches
     size_t pos = 0;
     for(auto split : splits) {
       std::vector<size_t> ids;
@@ -321,7 +342,7 @@ public:
       pos += split->size();
     }
 
-    // @TODO: restore word alignments in splitted batches
+    // @TODO: restore word alignments in split batches
     ABORT_IF(
         !guidedAlignment_.empty(),
         "Guided alignment with synchronous SGD is temporarily not supported");
@@ -330,18 +351,18 @@ public:
     pos = 0;
     if(!dataWeights_.empty()) {
       size_t oldSize = size();
-      
+
       size_t width = 1;
       // There are more weights than sentences, i.e. these are word weights.
       if(dataWeights_.size() != oldSize)
         width = batches_.back()->batchWidth();
-        
+
       for(auto split : splits) {
         std::vector<float> ws(width * split->size(), 1.0f);
-        
+
         // this needs to be split along the batch dimension
         // which is here the innermost dimension.
-        // Should work for sentence-based weights, too. 
+        // Should work for sentence-based weights, too.
         for(int j = 0; j < width; ++j) {
           for(int i = 0; i < split->size(); ++i) {
             ws[j * split->size() + i] = dataWeights_[j * oldSize + i + pos];
@@ -366,7 +387,7 @@ public:
   }
 
   /**
-   * @brief Prints the batch in a readable on stderr form for debugging.
+   * @brief Prints the batch in a readable form on stderr for debugging.
    */
   void debug() {
     std::cerr << "batches: " << sets() << std::endl;
@@ -405,7 +426,8 @@ public:
 class CorpusIterator;
 
 class CorpusBase
-    : public DatasetBase<SentenceTuple, CorpusIterator, CorpusBatch> {
+    : public DatasetBase<SentenceTuple, CorpusIterator, CorpusBatch>,
+      public RNGEngine {
 public:
   CorpusBase() : DatasetBase() {}
 

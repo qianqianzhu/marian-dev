@@ -2,11 +2,10 @@
 
 #include <thread>
 
-#include "tensors/gpu/backend.h"
 #include "graph/node.h"
 #include "functional/functional.h"
-#include "kernels/tensor_operators.h"
-#include "kernels/cudnn_wrappers.h"
+#include "tensors/tensor_operators.h"
+#include "tensors/gpu/cudnn_wrappers.h"
 
 namespace marian {
 
@@ -17,16 +16,13 @@ private:
   float scalar_;
 
 public:
-  template <typename... Args>
   DotNodeOp(Expr a,
             Expr b,
             bool transA,
             bool transB,
-            float scalar,
-            Args... args)
+            float scalar)
       : NaryNodeOp({a, b},
-                   keywords::shape = newShape(a, b, transA, transB),
-                   args...),
+                   newShape(a, b, transA, transB)),
         transA_(transA),
         transB_(transB),
         scalar_(scalar) {}
@@ -54,7 +50,6 @@ public:
   NodeOps forwardOps() {
     // C = alpha * dot(op(A), op(B))
     return {NodeOp(Prod(
-        std::static_pointer_cast<gpu::Backend>(getBackend())->getCublasHandle(),
         val_,
         child(0)->val(),
         child(1)->val(),
@@ -72,18 +67,14 @@ public:
     // to sum gradients from different graph parts
 
     if(!transA_ && transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           adj_,
                           child(1)->val(),
                           false,
                           false,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           adj_,
                           child(0)->val(),
                           true,
@@ -92,18 +83,14 @@ public:
                           scalar_))};
 
     if(transA_ && !transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           child(1)->val(),
                           adj_,
                           false,
                           true,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           child(0)->val(),
                           adj_,
                           false,
@@ -112,18 +99,14 @@ public:
                           scalar_))};
 
     if(transA_ && transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           child(1)->val(),
                           adj_,
                           true,
                           true,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           adj_,
                           child(0)->val(),
                           true,
@@ -131,18 +114,14 @@ public:
                           1.0,
                           scalar_))};
 
-    return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                            ->getCublasHandle(),
-                        child(0)->grad(),
+    return {NodeOp(Prod(child(0)->grad(),
                         adj_,
                         child(1)->val(),
                         false,
                         true,
                         1.0,
                         scalar_)),
-            NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                            ->getCublasHandle(),
-                        child(1)->grad(),
+            NodeOp(Prod(child(1)->grad(),
                         child(0)->val(),
                         adj_,
                         true,
@@ -167,8 +146,7 @@ public:
                bool transA,
                bool transB,
                float scalar)
-      : NaryNodeOp(nodes, keywords::shape = newShape(nodes[0], nodes[1],
-                                                     transA, transB)),
+      : NaryNodeOp(nodes, newShape(nodes[0], nodes[1], transA, transB)),
         transA_(transA),
         transB_(transB),
         scalar_(scalar){}
@@ -198,7 +176,6 @@ public:
     using namespace functional;
     return {
       NodeOp(Prod(
-        std::static_pointer_cast<gpu::Backend>(getBackend())->getCublasHandle(),
         val_,
         child(0)->val(),
         child(1)->val(),
@@ -219,18 +196,14 @@ public:
     using namespace functional;
 
     if(!transA_ && transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           adj_,
                           child(1)->val(),
                           false,
                           false,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           adj_,
                           child(0)->val(),
                           true,
@@ -240,18 +213,14 @@ public:
               NodeOp(Add(_1, child(2)->grad(), adj_))};
 
     if(transA_ && !transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           child(1)->val(),
                           adj_,
                           false,
                           true,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           child(0)->val(),
                           adj_,
                           false,
@@ -261,18 +230,14 @@ public:
               NodeOp(Add(_1, child(2)->grad(), adj_))};
 
     if(transA_ && transB_)
-      return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(0)->grad(),
+      return {NodeOp(Prod(child(0)->grad(),
                           child(1)->val(),
                           adj_,
                           true,
                           true,
                           1.0,
                           scalar_)),
-              NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                              ->getCublasHandle(),
-                          child(1)->grad(),
+              NodeOp(Prod(child(1)->grad(),
                           adj_,
                           child(0)->val(),
                           true,
@@ -281,18 +246,14 @@ public:
                           scalar_)),
               NodeOp(Add(_1, child(2)->grad(), adj_))};
 
-    return {NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                            ->getCublasHandle(),
-                        child(0)->grad(),
+    return {NodeOp(Prod(child(0)->grad(),
                         adj_,
                         child(1)->val(),
                         false,
                         true,
                         1.0,
                         scalar_)),
-            NodeOp(Prod(std::static_pointer_cast<gpu::Backend>(getBackend())
-                            ->getCublasHandle(),
-                        child(1)->grad(),
+            NodeOp(Prod(child(1)->grad(),
                         child(0)->val(),
                         adj_,
                         true,
@@ -313,16 +274,13 @@ private:
   float scalar_;
 
 public:
-  template <typename... Args>
   DotBatchedNodeOp(Expr a,
                    Expr b,
                    bool transA,
                    bool transB,
-                   float scalar,
-                   Args... args)
+                   float scalar)
       : NaryNodeOp({a, b},
-                   keywords::shape = newShape(a, b, transA, transB),
-                   args...),
+                   newShape(a, b, transA, transB)),
         transA_(transA),
         transB_(transB),
         scalar_(scalar) {}
@@ -350,7 +308,6 @@ public:
   NodeOps forwardOps() {
     // C = alpha * dot(op(A), op(B))
     return {NodeOp(ProdBatched(
-        std::static_pointer_cast<gpu::Backend>(getBackend())->getCublasHandle(),
         val_,
         child(0)->val(),
         child(1)->val(),
@@ -369,18 +326,14 @@ public:
 
     if(!transA_ && transB_)
       return {
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(0)->grad(),
+          NodeOp(ProdBatched(child(0)->grad(),
                              adj_,
                              child(1)->val(),
                              false,
                              false,
                              1.0,
                              scalar_)),
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(1)->grad(),
+          NodeOp(ProdBatched(child(1)->grad(),
                              adj_,
                              child(0)->val(),
                              true,
@@ -390,18 +343,14 @@ public:
 
     if(transA_ && !transB_)
       return {
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(0)->grad(),
+          NodeOp(ProdBatched(child(0)->grad(),
                              child(1)->val(),
                              adj_,
                              false,
                              true,
                              1.0,
                              scalar_)),
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(1)->grad(),
+          NodeOp(ProdBatched(child(1)->grad(),
                              child(0)->val(),
                              adj_,
                              false,
@@ -411,18 +360,14 @@ public:
 
     if(transA_ && transB_)
       return {
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(0)->grad(),
+          NodeOp(ProdBatched(child(0)->grad(),
                              child(1)->val(),
                              adj_,
                              true,
                              true,
                              1.0,
                              scalar_)),
-          NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                                 ->getCublasHandle(),
-                             child(1)->grad(),
+          NodeOp(ProdBatched(child(1)->grad(),
                              adj_,
                              child(0)->val(),
                              true,
@@ -431,18 +376,14 @@ public:
                              scalar_))};
 
     return {
-        NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                               ->getCublasHandle(),
-                           child(0)->grad(),
+        NodeOp(ProdBatched(child(0)->grad(),
                            adj_,
                            child(1)->val(),
                            false,
                            true,
                            1.0,
                            scalar_)),
-        NodeOp(ProdBatched(std::static_pointer_cast<gpu::Backend>(getBackend())
-                               ->getCublasHandle(),
-                           child(1)->grad(),
+        NodeOp(ProdBatched(child(1)->grad(),
                            child(0)->val(),
                            adj_,
                            true,
@@ -459,7 +400,7 @@ public:
 struct ScalarProductNodeOp : public NaryNodeOp {
   template <typename... Args>
   ScalarProductNodeOp(Expr a, Expr b, Args... args)
-      : NaryNodeOp({a, b}, keywords::shape = newShape(a, b, args...), args...) {
+      : NaryNodeOp({a, b}, newShape(a, b, args...)) {
   }
 
   template <typename... Args>
@@ -492,9 +433,8 @@ struct ScalarProductNodeOp : public NaryNodeOp {
 };
 
 struct ElementBinaryNodeOp : public NaryNodeOp {
-  template <typename... Args>
-  ElementBinaryNodeOp(Expr a, Expr b, Args... args)
-      : NaryNodeOp({a, b}, keywords::shape = newShape(a, b), args...) {}
+  ElementBinaryNodeOp(Expr a, Expr b)
+      : NaryNodeOp({a, b}, newShape(a, b)) {}
 
   Shape newShape(Expr a, Expr b) {
     return Shape::broadcast({a, b});
@@ -504,8 +444,7 @@ struct ElementBinaryNodeOp : public NaryNodeOp {
 };
 
 struct PlusNodeOp : public ElementBinaryNodeOp {
-  template <typename... Args>
-  PlusNodeOp(Args... args) : ElementBinaryNodeOp(args...) {}
+  PlusNodeOp(Expr a, Expr b) : ElementBinaryNodeOp(a, b) {}
 
   NodeOps forwardOps() {
     using namespace functional;
@@ -525,8 +464,7 @@ struct PlusNodeOp : public ElementBinaryNodeOp {
 };
 
 struct MinusNodeOp : public ElementBinaryNodeOp {
-  template <typename... Args>
-  MinusNodeOp(Args... args) : ElementBinaryNodeOp(args...) {}
+  MinusNodeOp(Expr a, Expr b) : ElementBinaryNodeOp(a, b) {}
 
   NodeOps forwardOps() {
     using namespace functional;
@@ -546,8 +484,7 @@ struct MinusNodeOp : public ElementBinaryNodeOp {
 };
 
 struct MultNodeOp : public ElementBinaryNodeOp {
-  template <typename... Args>
-  MultNodeOp(Args... args) : ElementBinaryNodeOp(args...) {}
+  MultNodeOp(Expr a, Expr b) : ElementBinaryNodeOp(a, b) {}
 
   NodeOps forwardOps() {
     using namespace functional;
@@ -567,8 +504,7 @@ struct MultNodeOp : public ElementBinaryNodeOp {
 };
 
 struct DivNodeOp : public ElementBinaryNodeOp {
-  template <typename... Args>
-  DivNodeOp(Args... args) : ElementBinaryNodeOp(args...) {}
+  DivNodeOp(Expr a, Expr b) : ElementBinaryNodeOp(a, b) {}
 
   NodeOps forwardOps() {
     using namespace functional;
@@ -617,9 +553,8 @@ struct DivNodeOp : public ElementBinaryNodeOp {
 
 // Cross-entropy node. It computes -b*log(softmax(a)), summing rowwise.
 struct CrossEntropyNodeOp : public NaryNodeOp {
-  template <typename... Args>
-  CrossEntropyNodeOp(Expr a, Expr b, Args... args)
-      : NaryNodeOp({a, b}, keywords::shape = newShape(a), args...) {}
+  CrossEntropyNodeOp(Expr a, Expr b)
+      : NaryNodeOp({a, b}, newShape(a)) {}
 
   Shape newShape(Expr a) {
     Shape shape1 = a->shape();
@@ -643,10 +578,7 @@ struct CrossEntropyNodeOp : public NaryNodeOp {
 struct ConcatenateNodeOp : public NaryNodeOp {
   template <typename... Args>
   ConcatenateNodeOp(const std::vector<Expr>& nodes, Args... args)
-      : NaryNodeOp(nodes,
-                   keywords::shape
-                   = newShape(nodes, keywords::Get(keywords::axis, 0, args...)),
-                   args...) {}
+      : NaryNodeOp(nodes, newShape(nodes, keywords::Get(keywords::axis, 0, args...))) {}
 
   Shape newShape(const std::vector<Expr>& nodes, int ax) {
     Shape shape = nodes.back()->shape();
