@@ -115,7 +115,7 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
     int pos = 0;
     // parameter sharding
     for(auto graph : graphs_) {
-      int __size__ = min(shardSize_, totalSize);
+      int __size__ = std::min(shardSize_, totalSize);
       totalSize -= __size__;
 
       Tensor param;
@@ -134,7 +134,7 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
     int totalSize = graphs_[0]->params()->vals()->size();
 
     for(auto graph : graphs_) {
-      int __size__ = min(shardSize_, totalSize);
+      int __size__ = std::min(shardSize_, totalSize);
       totalSize -= __size__;
       Tensor grad_;
       Ptr<TensorAllocator> allocator_ = New<TensorAllocator>(graph->getBackend());
@@ -164,7 +164,7 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
 
       int i = 0;
       for(auto graph : graphs_) {
-        int __size__ = min(shardSize_, totalSize);
+        int __size__ = std::min(shardSize_, totalSize);
         totalSize -= __size__;
         Tensor paramAvg;
         Ptr<TensorAllocator> allocator = New<TensorAllocator>(graph->getBackend());

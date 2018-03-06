@@ -11,7 +11,10 @@
 #include "tensors/backend.h"
 
 #include <algorithm>
+
+#ifdef CUDA_FOUND
 #include "tensors/gpu/algorithm.h"
+#endif
 
 namespace marian {
 
@@ -53,33 +56,49 @@ public:
 
   float get(size_t i) {
     float temp;
-    if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, data() + i, data() + i + 1, &temp);
-    else
+    if(backend_->getDevice().type == DeviceType::cpu) {
       std::copy(data() + i, data() + i + 1, &temp);
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, data() + i, data() + i + 1, &temp);
+    }
+#endif
     return temp;
   }
 
   void set(size_t i, float value) {
-    if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, &value, &value + 1, data() + i);
-    else
+    if(backend_->getDevice().type == DeviceType::cpu) {
       std::copy(&value, &value + 1, data() + i);
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, &value, &value + 1, data() + i);
+    }
+#endif
   }
 
   void get(std::vector<float> &v) {
     v.resize(size());
-    if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, data(), data() + size(), v.data());
-    else
+    if(backend_->getDevice().type == DeviceType::cpu) {
       std::copy(data(), data() + size(), v.data());
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, data(), data() + size(), v.data());
+    }
+#endif
   }
 
   void set(const float* begin, const float* end) {
-    if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, begin, end, data());
-    else
+    if(backend_->getDevice().type == DeviceType::cpu) {
       std::copy(begin, end, data());
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, begin, end, data());
+    }
+#endif
   }
 
   void set(const std::vector<float> &v) {
@@ -87,28 +106,39 @@ public:
   }
 
   void set(float value) {
-    if(backend_->getDevice().type == DeviceType::gpu)
-      gpu::fill(backend_, data(), data() + size(), value);
-    else
+    if(backend_->getDevice().type == DeviceType::cpu) {
       std::fill(data(), data() + size(), value);
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::fill(backend_, data(), data() + size(), value);
+    }
+#endif
   }
 
   void setSparse(const std::vector<size_t> &k,
                  const std::vector<float> &v) {
-    if(backend_->getDevice().type == DeviceType::gpu) {
-      gpu::setSparse(backend_, k, v, data());
-    } else {
+    if(backend_->getDevice().type == DeviceType::cpu) {
       for(int i = 0; i < k.size(); ++i)
         data()[k[i]] = v[i];
     }
+#ifdef CUDA_FOUND
+    else {
+      gpu::setSparse(backend_, k, v, data());
+    }
+#endif
   }
 
   void copyFrom(Tensor in) {
-    if(in->getBackend()->getDevice().type == DeviceType::gpu ||
-       backend_->getDevice().type == DeviceType::gpu)
-      gpu::copy(backend_, in->data(), in->data() + in->size(), data());
-    else
+    if(in->getBackend()->getDevice().type == DeviceType::cpu &&
+       backend_->getDevice().type == DeviceType::cpu) {
       std::copy(in->data(), in->data() + in->size(), data());
+    }
+#ifdef CUDA_FOUND
+    else {
+      gpu::copy(backend_, in->data(), in->data() + in->size(), data());
+    }
+#endif
   }
 
   std::string debug() {
