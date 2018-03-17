@@ -1,9 +1,23 @@
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
+#include <boost/regex.hpp>
 #include <set>
 #include <string>
+#include <stdexcept>
+
+#if MKL_FOUND
+//#include <omp.h>
+#include <mkl.h>
+#else
+#if BLAS_FOUND
+//#include <omp.h>
+#include <cblas.h>
+#endif
+#endif
+
 
 #include "3rd_party/cnpy/cnpy.h"
+#include "common/definitions.h"
 #include "common/config.h"
 #include "common/config_parser.h"
 #include "common/file_stream.h"
@@ -47,7 +61,6 @@ uint16_t guess_terminal_width(uint16_t max_width) {
 }
 
 void OutputYaml(const YAML::Node node, YAML::Emitter& out) {
-  // std::set<std::string> flow = { "devices" };
   std::set<std::string> sorter;
   switch(node.Type()) {
     case YAML::NodeType::Null: out << node; break;
@@ -66,8 +79,6 @@ void OutputYaml(const YAML::Node node, YAML::Emitter& out) {
         out << YAML::Key;
         out << key;
         out << YAML::Value;
-        // if(flow.count(key))
-        // out << YAML::Flow;
         OutputYaml(node[key], out);
       }
       out << YAML::EndMap;
@@ -210,6 +221,28 @@ void ConfigParser::validateOptions() const {
       "--lr-decay-start option");
 }
 
+void ConfigParser::validateDevices() const {
+  std::string devices = Join(get<std::vector<std::string>>("devices"));
+  Trim(devices);
+
+  boost::regex pattern;
+  std::string help;
+  if(mode_ == ConfigMode::training && get<bool>("multi-node")) {
+    // valid strings: '0: 1 2', '0:1 2 1:2 3'
+    pattern = "( *[0-9]+ *: *[0-9]+( *[0-9]+)*)+";
+    help = "Supported format for multi-node setting: '0:0 1 2 3 1:0 1 2 3'";
+  } else {
+    // valid strings: '0', '0 1 2 3', '3 2 0 1'
+    pattern = "[0-9]+( *[0-9]+)*";
+    help = "Supported formats: '0 1 2 3'";
+  }
+
+  UTIL_THROW_IF2(!boost::regex_match(devices, pattern),
+                 "the argument '(" + devices
+                     + ")' for option '--devices' is invalid. "
+                     + help);
+}
+
 void ConfigParser::addOptionsCommon(po::options_description& desc) {
   int defaultWorkspace = (mode_ == ConfigMode::translating) ? 512 : 2048;
 
@@ -271,8 +304,6 @@ void ConfigParser::addOptionsModel(po::options_description& desc) {
     ("interpolation-type", po::value<std::string>()->default_value("shallow"),
       "Interpolation type when using s2s_lmint model. Could be shallow, shallow-trainable, shallow-vector, deep,\
       extra-output, cost-only")
-    ("trainable-interpolation", po::value<bool>()->zero_tokens()->default_value(false),
-     "Enable trainable lm for the lm interpolation models.")
     ("lm-cost", po::value<float>()->default_value(0.0f),
      "Add a training cost with an LM.")
     ("lm-pretrained-embeddings", po::value<bool>()->zero_tokens()->default_value(false),
@@ -402,7 +433,7 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
     ("save-freq", po::value<size_t>()->default_value(10000),
       "Save model file every  arg  updates")
     ("no-shuffle", po::value<bool>()->zero_tokens()->default_value(false),
-    "Skip shuffling of training data before each epoch")
+      "Skip shuffling of training data before each epoch")
     ("tempdir,T", po::value<std::string>()->default_value("/tmp"),
       "Directory for temporary (shuffled) files and database")
     ("sqlite", po::value<std::string>()->default_value("")->implicit_value("temporary"),
@@ -410,11 +441,21 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
       "is temporary with path creates persistent storage")
     ("sqlite-drop", po::value<bool>()->zero_tokens()->default_value(false),
       "Drop existing tables in sqlite3 database")
-    ("devices,d", po::value<std::vector<int>>()
+    ("restore-corpus,r", po::value<bool>()->zero_tokens()->default_value(false),
+      "Restore the corpus state for seamless training continuation")
+    ("devices,d", po::value<std::vector<std::string>>()
       ->multitoken()
-      ->default_value(std::vector<int>({0}), "0"),
-      "GPUs to use for training. Asynchronous SGD is used with multiple devices")
-
+      ->default_value(std::vector<std::string>({"0"}), "0"),
+      "GPU ID(s) to use for training")
+#ifdef CUDA_FOUND
+    ("cpu-threads", po::value<size_t>()->default_value(0)->implicit_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+    //("omp-threads", po::value<size_t>()->default_value(1),
+    //  "Set number of OpenMP threads for each CPU-based thread")
+#else
+    ("cpu-threads", po::value<size_t>()->default_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+#endif
     ("mini-batch", po::value<int>()->default_value(64),
       "Size of mini-batch used during update")
     ("mini-batch-words", po::value<int>()->default_value(0),
@@ -422,6 +463,8 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
     ("mini-batch-fit", po::value<bool>()->zero_tokens()->default_value(false),
       "Determine mini-batch size automatically based on sentence-length to "
       "fit reserved memory")
+    ("mini-batch-fit-step", po::value<size_t>()->default_value(10),
+      "Step size for mini-batch-fit statistics")
     ("maxi-batch", po::value<int>()->default_value(100),
       "Number of batches to preload for length-based sorting")
     ("maxi-batch-sort", po::value<std::string>()->default_value("trg"),
@@ -434,6 +477,8 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
      "Parameters for optimization algorithm, e.g. betas for adam")
     ("optimizer-delay", po::value<size_t>()->default_value(1),
      "SGD update delay, 1 = no delay")
+    ("gradient-buffer", po::value<size_t>()->default_value(1),
+     "Gradient buffer delay, 1 = no buffer")
     ("learn-rate,l", po::value<double>()->default_value(0.0001),
      "Learning rate")
     ("lr-decay", po::value<double>()->default_value(0.0),
@@ -514,6 +559,14 @@ void ConfigParser::addOptionsTraining(po::options_description& desc) {
       ->zero_tokens()
       ->default_value(false),
      "Fix target embeddings. Affects all decoders")
+
+    ("multi-node", po::value<bool>()
+      ->zero_tokens()
+      ->default_value(false),
+     "Enable multi-node training through MPI")
+    ("multi-node-overlap", po::value<bool>()
+      ->default_value(true),
+     "Overlap model computations with MPI communication")
   ;
   // clang-format on
   desc.add(training);
@@ -588,10 +641,19 @@ void ConfigParser::addOptionsTranslate(po::options_description& desc) {
       "Maximum length of a sentence in a training sentence pair")
     ("max-length-crop", po::value<bool>()->zero_tokens()->default_value(false),
       "Crop a sentence to max-length instead of ommitting it if longer than max-length")
-    ("devices,d", po::value<std::vector<int>>()
+    ("devices,d", po::value<std::vector<std::string>>()
       ->multitoken()
-      ->default_value(std::vector<int>({0}), "0"),
+      ->default_value(std::vector<std::string>({"0"}), "0"),
       "GPUs to use for translating")
+#ifdef CUDA_FOUND
+    ("cpu-threads", po::value<size_t>()->default_value(0)->implicit_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+    //("omp-threads", po::value<size_t>()->default_value(1),
+    //  "Set number of OpenMP threads for each CPU-based thread")
+#else
+    ("cpu-threads", po::value<size_t>()->default_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+#endif
     ("mini-batch", po::value<int>()->default_value(1),
       "Size of mini-batch used during update")
     ("maxi-batch", po::value<int>()->default_value(1),
@@ -632,19 +694,27 @@ void ConfigParser::addOptionsRescore(po::options_description& desc) {
       "Maximum length of a sentence in a training sentence pair")
     ("max-length-crop", po::value<bool>()->zero_tokens()->default_value(false),
       "Crop a sentence to max-length instead of ommitting it if longer than max-length")
-    ("devices,d", po::value<std::vector<int>>()
+    ("devices,d", po::value<std::vector<std::string>>()
       ->multitoken()
-      ->default_value(std::vector<int>({0}), "0"),
-      "GPUs to use for training. Asynchronous SGD is used with multiple devices")
-
+      ->default_value(std::vector<std::string>({"0"}), "0"),
+      "GPUs to use for training")
+#ifdef CUDA_FOUND
+    ("cpu-threads", po::value<size_t>()->default_value(0)->implicit_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+    //("omp-threads", po::value<size_t>()->default_value(1),
+    //  "Set number of OpenMP threads for each CPU-based thread")
+#else
+    ("cpu-threads", po::value<size_t>()->default_value(1),
+      "Use CPU-based computation with this many independent threads, 0 means GPU-based computation")
+#endif
     ("mini-batch", po::value<int>()->default_value(64),
       "Size of mini-batch used during update")
     ("mini-batch-words", po::value<int>()->default_value(0),
       "Set mini-batch size based on words instead of sentences")
-    ("mini-batch-fit", po::value<bool>()->zero_tokens()->default_value(false),
-      "Determine mini-batch size automatically based on sentence-length to fit reserved memory")
     ("maxi-batch", po::value<int>()->default_value(100),
       "Number of batches to preload for length-based sorting")
+    ("maxi-batch-sort", po::value<std::string>()->default_value("trg"),
+      "Sorting strategy for maxi-batch: trg (default) src none")
     ;
   // clang-format on
   desc.add(rescore);
@@ -688,6 +758,7 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
     exit(0);
   }
 
+  // @TODO: move to validateOptions()
   if(mode_ == ConfigMode::translating) {
     if(vm_.count("models") == 0 && vm_.count("config") == 0) {
       std::cerr << "Error: you need to provide at least one model file or a "
@@ -706,14 +777,17 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
     exit(0);
   }
 
+  bool loadConfig = vm_.count("config");
+  bool reloadConfig
+      = (mode_ == ConfigMode::training)
+        && boost::filesystem::exists(vm_["model"].as<std::string>() + ".yml")
+        && !vm_["no-reload"].as<bool>();
   std::string configPath;
-  if(vm_.count("config")) {
+
+  if(loadConfig) {
     configPath = vm_["config"].as<std::string>();
     config_ = YAML::Load(InputFileStream(configPath));
-  } else if((mode_ == ConfigMode::training)
-            && boost::filesystem::exists(vm_["model"].as<std::string>()
-                                         + ".yml")
-            && !vm_["no-reload"].as<bool>()) {
+  } else if(reloadConfig) {
     configPath = vm_["model"].as<std::string>() + ".yml";
     config_ = YAML::Load(InputFileStream(configPath));
   }
@@ -736,7 +810,6 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   SET_OPTION("ignore-model-config", bool);
   SET_OPTION("type", std::string);
   SET_OPTION("interpolation-type", std::string);
-  SET_OPTION("trainable-interpolation", bool);
   SET_OPTION("lm-cost", float);
   SET_OPTION("lm-pretrained-embeddings", bool);
   SET_OPTION("dim-vocabs", std::vector<int>);
@@ -803,14 +876,17 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
     SET_OPTION("tempdir", std::string);
     SET_OPTION("sqlite", std::string);
     SET_OPTION("sqlite-drop", bool);
+    SET_OPTION("restore-corpus", bool);
 
     SET_OPTION("optimizer", std::string);
     SET_OPTION_NONDEFAULT("optimizer-params", std::vector<float>);
     SET_OPTION("optimizer-delay", size_t);
+    SET_OPTION("gradient-buffer", size_t);
     SET_OPTION("learn-rate", double);
     SET_OPTION("sync-sgd", bool);
     SET_OPTION("mini-batch-words", int);
     SET_OPTION("mini-batch-fit", bool);
+    SET_OPTION("mini-batch-fit-step", size_t);
 
     SET_OPTION("lr-decay", double);
     SET_OPTION("lr-decay-strategy", std::string);
@@ -845,16 +921,20 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
     SET_OPTION("embedding-normalization", bool);
     SET_OPTION("embedding-fix-src", bool);
     SET_OPTION("embedding-fix-trg", bool);
+
+    SET_OPTION("multi-node", bool);
+    SET_OPTION("multi-node-overlap", bool);
   }
+
   if(mode_ == ConfigMode::rescoring) {
     SET_OPTION("no-reload", bool);
     if(!vm_["train-sets"].empty()) {
       config_["train-sets"] = vm_["train-sets"].as<std::vector<std::string>>();
     }
     SET_OPTION("mini-batch-words", int);
-    SET_OPTION("mini-batch-fit", bool);
     SET_OPTION_NONDEFAULT("summary", std::string);
   }
+
   if(mode_ == ConfigMode::translating) {
     SET_OPTION("input", std::vector<std::string>);
     SET_OPTION("beam-size", size_t);
@@ -866,6 +946,7 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   }
 
   /** valid **/
+
   if(mode_ == ConfigMode::training) {
     if(!vm_["valid-sets"].empty()) {
       config_["valid-sets"] = vm_["valid-sets"].as<std::vector<std::string>>();
@@ -894,12 +975,14 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   SET_OPTION_NONDEFAULT("log", std::string);
   SET_OPTION("seed", size_t);
   SET_OPTION("relative-paths", bool);
-  SET_OPTION("devices", std::vector<int>);
+  SET_OPTION("devices", std::vector<std::string>);
+  SET_OPTION("cpu-threads", size_t);
+  //SET_OPTION("omp-threads", size_t);
+
   SET_OPTION("mini-batch", int);
   SET_OPTION("maxi-batch", int);
 
-  if(mode_ == ConfigMode::training || mode_ == ConfigMode::translating)
-    SET_OPTION("maxi-batch-sort", std::string);
+  SET_OPTION("maxi-batch-sort", std::string);
   SET_OPTION("max-length", size_t);
   SET_OPTION("max-length-crop", bool);
 
@@ -922,6 +1005,7 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
   if(doValidate) {
     try {
       validateOptions();
+      validateDevices();
     } catch(util::Exception& e) {
       std::cerr << "Error: " << e.what() << std::endl << std::endl;
 
@@ -937,6 +1021,56 @@ void ConfigParser::parseOptions(int argc, char** argv, bool doValidate) {
     std::cout << emit.c_str() << std::endl;
     exit(0);
   }
+
+// @TODO: this should probably be in processOptionDevices()
+//#ifdef BLAS_FOUND
+//  //omp_set_num_threads(vm_["omp-threads"].as<size_t>());
+//#ifdef MKL_FOUND
+//  mkl_set_num_threads(vm_["omp-threads"].as<size_t>());
+//#endif
+//#endif
+}
+
+std::vector<DeviceId> ConfigParser::getDevices() {
+  std::vector<DeviceId> devices;
+
+  try {
+    
+    std::string devicesStr
+        = Join(config_["devices"].as<std::vector<std::string>>());
+        
+    
+    if(mode_ == ConfigMode::training && get<bool>("multi-node")) {
+      auto parts = Split(devicesStr, ":");
+      for(size_t i = 1; i < parts.size(); ++i) {
+        std::string part = parts[i];
+        Trim(part);
+        auto ds = Split(part, " ");
+        if(i < parts.size() - 1)
+          ds.pop_back();
+        
+        // does this make sense?
+        devices.push_back({ds.size(), DeviceType::gpu});
+        for(auto d : ds)
+          devices.push_back({std::stoull(d), DeviceType::gpu});
+      }
+    } else {
+      for(auto d : Split(devicesStr))
+        devices.push_back({std::stoull(d), DeviceType::gpu});
+    }
+    
+    if(config_["cpu-threads"].as<size_t>() > 0) {
+      devices.clear();
+      for(size_t i = 0; i < config_["cpu-threads"].as<size_t>(); ++i)
+      devices.push_back({i, DeviceType::cpu});
+    }
+    
+  }
+  catch(...) {
+    ABORT("Problem parsing devices, please report an issue on github");
+  }
+
+  return devices;
 }
 
 YAML::Node ConfigParser::getConfig() const {

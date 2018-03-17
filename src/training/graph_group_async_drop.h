@@ -31,7 +31,7 @@ class AsyncGraphGroupDrop : public AsyncGraphGroup {
 
   std::vector<Ptr<TensorAllocator>> allocators;
 
-  Tensor newTensor(int size, int device);
+  Tensor newTensor(int size, Ptr<Backend> backend);
 
 protected:
   void init(Ptr<data::Batch> batch);
@@ -45,6 +45,6 @@ public:
       : AsyncGraphGroup(options),
         droping_rate{options->get<float>("grad-dropping-rate")},
         dropping_momentum{options->get<float>("grad-dropping-momentum")},
-        dropping_warmup{options->get<size_t>("grad-dropping-warmup")}{}
+        dropping_warmup{options->get<size_t>("grad-dropping-warmup")} {}
 };
 }

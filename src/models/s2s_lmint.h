@@ -36,8 +36,7 @@ private:
       baseCell.push_back(rnn::cell(graph)         //
                          ("prefix", paramPrefix)  //
                          ("final", i > 1)         //
-                         ("transition", transition)
-                         ("fixed", !opt<bool>("trainable-interpolation")));
+                         ("transition", transition));
     }
     // Add cell to RNN (first layer)
     rnn.push_back(baseCell);
@@ -50,7 +49,7 @@ private:
       for(int j = 1; j <= decoderHighDepth; j++) {
         auto paramPrefix
             = prefix_ + "_l" + std::to_string(i) + "_lm_cell" + std::to_string(j);
-        highCell.push_back(rnn::cell(graph)("prefix", paramPrefix)("fixed", !opt<bool>("trainable-interpolation")));
+        highCell.push_back(rnn::cell(graph)("prefix", paramPrefix));
       }
 
       // Add cell to RNN (more layers)
@@ -134,7 +133,7 @@ public:
     //Start state for LM deecoder.
     int dimBatch = batch->size();
     int dimRnn = opt<int>("dim-rnn"); //Assuming the same decoder shape as the one used
-    Expr lm_start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
+    Expr lm_start = graph->constant({dimBatch, dimRnn}, inits::zeros);
 
     rnn::States lm_startStates(opt<size_t>("dec-depth"), {lm_start, lm_start});
 
@@ -176,7 +175,7 @@ public:
       int dimBatch = batch->size();
       int dimRnn = opt<int>("dim-rnn");
 
-      start = graph->constant({dimBatch, dimRnn}, init = inits::zeros);
+      start = graph->constant({dimBatch, dimRnn}, inits::zeros);
     }
 
     rnn::States startStates(opt<size_t>("dec-depth"), {start, start});
@@ -277,14 +276,12 @@ public:
         ("layer-normalization", opt<bool>("layer-normalization"))  //
         ("nematus-normalization",
          options_->has("original-type")
-             && opt<std::string>("original-type") == "nematus")
-        ("fixed", !opt<bool>("trainable-interpolation"));
+             && opt<std::string>("original-type") == "nematus");
 
 
     auto lm_layer2 = mlp::dense(graph)           //
         ("prefix", prefix_ + "_lm_ff_logit_l2")  //
-        ("dim", dimTrgVoc)
-        ("fixed", !opt<bool>("trainable-interpolation"));
+        ("dim", dimTrgVoc);
 
     
     if (opt<bool>("lm-pretrained-embeddings") && (opt<bool>("tied-embeddings-src") || opt<bool>("tied-embeddings-all") || opt<bool>("tied-embeddings"))) {
@@ -330,7 +327,7 @@ public:
 
       lm_logits = lm_output->apply(lm_embeddings, lm_decoderContext);
       //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
-      auto alpha = graph->param("alpha", {1,1}, keywords::init=inits::from_value(0.2));
+      auto alpha = graph->param("alpha", {1,1}, inits::from_value(0.2));
       logits = logits + alpha*lm_logits;
     }else if(opt<std::string>("interpolation-type") == "shallow-vector") {
       if(alignedContext)
@@ -343,7 +340,7 @@ public:
       //Shallow interpolations, add a param here that is trainable that interpolates logits with lm_logits
       //@TODO ask marcin how you multiply 2d by 3d
       //@TODO shape shows() that we produce what I think we do
-      auto alpha = graph->param("alpha", {1, dimTrgVoc}, keywords::init=inits::from_value(0.2));
+      auto alpha = graph->param("alpha", {1, dimTrgVoc}, inits::from_value(0.2));
       logits = logits + alpha*lm_logits;
     }else if(opt<std::string>("interpolation-type") == "deep") {
       if(alignedContext)

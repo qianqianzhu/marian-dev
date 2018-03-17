@@ -19,6 +19,7 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <SQLiteCpp/sqlite3/sqlite3.h>
 
+
 static void SQLiteRandomSeed(sqlite3_context* context,
                              int argc,
                              sqlite3_value** argv) {
@@ -58,6 +59,8 @@ public:
 
   void reset();
 
+  void restore(Ptr<TrainingState>);
+
   iterator begin() { return iterator(this); }
 
   iterator end() { return iterator(); }
@@ -89,7 +92,7 @@ public:
     for(int i = 0; i < batchSize; ++i) {
       for(int j = 0; j < maxDims.size(); ++j) {
         for(int k = 0; k < batchVector[i][j].size(); ++k) {
-          subBatches[j]->indices()[k * batchSize + i] = batchVector[i][j][k];
+          subBatches[j]->data()[k * batchSize + i] = batchVector[i][j][k];
           subBatches[j]->mask()[k * batchSize + i] = 1.f;
           words[j]++;
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "marian.h"
 #include "models/s2s.h"
 #include "layers/convolution.h"
 
@@ -17,7 +18,7 @@ public:
     // select embeddings that occur in the batch
     Expr batchEmbeddings, batchMask;
     std::tie(batchEmbeddings, batchMask)
-        = EncoderBase::lookup(embeddings, batch);
+        = EncoderBase::lookup(graph, embeddings, batch);
 
     // apply dropout over source words
     float dropProb = inference_ ? 0 : opt<float>("dropout-src");
@@ -67,7 +68,7 @@ protected:
     }
     int dimWords = strided.size() / dimBatch;
     auto stridedMask = graph->constant({dimWords, dimBatch, 1},
-                                       keywords::init = inits::from_vector(strided));
+                                       inits::from_vector(strided));
     return stridedMask;
   }
 };

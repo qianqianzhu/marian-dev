@@ -133,7 +133,7 @@ public:
     p[2] = 0;
 
     penalties_ = graph->constant({1, dimVocab_},
-                                 keywords::init = inits::from_vector(p));
+                                 inits::from_vector(p));
     return New<WordPenaltyState>(dimVocab_, penalties_);
   }
 
@@ -164,12 +164,12 @@ public:
   virtual Ptr<ScorerState> startState(Ptr<ExpressionGraph> graph,
                                       Ptr<data::CorpusBatch> batch) {
     std::vector<float> p(dimVocab_, -1);
-    for(auto i : (*batch)[batchIndex_]->indices())
+    for(auto i : (*batch)[batchIndex_]->data())
       p[i] = 0;
     p[2] = 0;
 
     penalties_ = graph->constant({1, dimVocab_},
-                                 keywords::init = inits::from_vector(p));
+                                 inits::from_vector(p));
     return New<WordPenaltyState>(dimVocab_, penalties_);
   }
 

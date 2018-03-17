@@ -22,8 +22,6 @@ namespace data {
 class Corpus : public CorpusBase {
 private:
   std::vector<UPtr<TemporaryFile>> tempFiles_;
-
-  std::mt19937 g_;
   std::vector<size_t> ids_;
 
   void shuffleFiles(const std::vector<std::string>& paths);
@@ -49,6 +47,8 @@ public:
   void shuffle();
 
   void reset();
+
+  void restore(Ptr<TrainingState>);
 
   iterator begin() { return iterator(this); }
 
@@ -81,7 +81,7 @@ public:
     for(int i = 0; i < batchSize; ++i) {
       for(int j = 0; j < maxDims.size(); ++j) {
         for(int k = 0; k < batchVector[i][j].size(); ++k) {
-          subBatches[j]->indices()[k * batchSize + i] = batchVector[i][j][k];
+          subBatches[j]->data()[k * batchSize + i] = batchVector[i][j][k];
           subBatches[j]->mask()[k * batchSize + i] = 1.f;
           words[j]++;
         }

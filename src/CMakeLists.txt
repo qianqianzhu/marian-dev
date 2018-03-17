@@ -4,56 +4,77 @@ include_directories(.)
 include_directories(3rd_party)
 include_directories(3rd_party/SQLiteCpp/include)
 
-cuda_add_library(marian
-  3rd_party/cnpy/cnpy.cpp
-  3rd_party/exception.cpp
-  3rd_party/svd/svd.cpp
-  graph/expression_graph.cu
-  graph/expression_operators.cu
-  graph/node.cu
-  graph/node_operators.cu
-  tensors/tensor.cu
-  tensors/device_gpu.cu
-  tensors/memory_piece.cu
-  kernels/tensor_operators.cu
-  kernels/dropout.cu
-  kernels/cudnn_wrappers.cu
-#  kernels/sparse.cu
-  layers/param_initializers.cu
-  layers/generic.cpp
-  layers/guided_alignment.cpp
-  layers/convolution.cu
-  models/model_factory.cpp
-  rnn/attention.cu
-  rnn/cells.cu
-  optimizers/clippers.cu
-  optimizers/optimizers.cu
+add_library(marian STATIC
   common/utils.cpp
   common/logging.cpp
   common/config.cpp
   common/config_parser.cpp
-  translator/history.cpp
-  translator/output_collector.cpp
-  translator/nth_element.cu
-  translator/helpers.cu
-  translator/scorers.cpp
-  training/dropper.cu
-  training/graph_group_async.cu
-  training/graph_group_async_drop.cu
-  training/graph_group_sync.cu
-  training/graph_group_singleton.cu
-  training/sparse_tensor.cu
-  training/validator.cpp
+
   data/vocab.cpp
   data/corpus_base.cpp
   data/corpus.cpp
   data/corpus_sqlite.cpp
   data/text_input.cpp
+
+  3rd_party/cnpy/cnpy.cpp
+  3rd_party/exception.cpp
+  3rd_party/svd/svd.cpp
+
+  tensors/backend.cpp
+  tensors/cpu/device.cpp
+  tensors/cpu/dropout.cpp
+  tensors/cpu/prod.cpp
+  tensors/cpu/tensor_operators.cpp
+
+  graph/expression_graph.cpp
+  graph/expression_operators.cpp
+  graph/node.cpp
+  graph/node_operators.cpp
+  graph/node_initializers.cpp
+
+  layers/convolution.cpp
+
+  rnn/cells.cpp
+  rnn/attention.cpp
+
+  optimizers/clippers.cpp
+  optimizers/optimizers.cpp
+
+  models/model_factory.cpp
+
+  translator/history.cpp
+  translator/output_collector.cpp
+  translator/nth_element.cpp
+  translator/helpers.cpp
+  translator/scorers.cpp
+
+  training/graph_group_async.cpp
+  training/graph_group_async_drop.cpp
+  training/graph_group_sync.cpp
+  training/graph_group_singleton.cpp
+  training/graph_group_multinode.cpp
+  training/validator.cpp
+
   rescorer/score_collector.cpp
   $<TARGET_OBJECTS:libyaml-cpp>
-  $<TARGET_OBJECTS:SQLiteCpp>
-  STATIC
-)
+  $<TARGET_OBJECTS:SQLiteCpp>)
+
+if(CUDA_FOUND)
+cuda_add_library(marian_cuda
+  tensors/gpu/device.cu
+  tensors/gpu/algorithm.cu
+  tensors/gpu/dropout.cu
+  tensors/gpu/prod.cu
+  tensors/gpu/element.cu
+  tensors/gpu/add.cu
+  tensors/gpu/tensor_operators.cu
+  tensors/gpu/cudnn_wrappers.cu
+  translator/nth_element.cu
+  translator/helpers.cu
+  training/dropper.cu
+  training/sparse_tensor.cu
+  STATIC)
+endif(CUDA_FOUND)
 
 set_target_properties(marian PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set_target_properties(marian PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -80,7 +101,10 @@ endif(COMPILE_SERVER)
 
 foreach(exec ${EXECUTABLES})
   target_link_libraries(${exec} marian ${EXT_LIBS})
-  cuda_add_cublas_to_target(${exec})
+  if(CUDA_FOUND)
+    target_link_libraries(${exec} marian marian_cuda ${EXT_LIBS} ${CMAKE_THREAD_LIBS_INIT})
+    cuda_add_cublas_to_target(${exec})
+  endif(CUDA_FOUND)
   set_target_properties(${exec} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endforeach(exec)
 
@@ -92,7 +116,7 @@ endforeach(exec)
 #set_target_properties(align2steps PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 if(PYTHONLIBS_FOUND)
-  add_subdirectory(python)
+#  add_subdirectory(python)
 endif(PYTHONLIBS_FOUND)
 
 if(COMPILE_TESTS)

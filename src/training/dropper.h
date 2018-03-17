@@ -10,7 +10,7 @@ class GradientDropBase {
   float* temp_d;
   float cut_off;
   int step;
-  int _device;
+  DeviceId _deviceId{0, DeviceType::gpu};
 
   void grad_drop_do(float* grads,
                     float* residual,
@@ -21,7 +21,10 @@ class GradientDropBase {
                     float m);
 
 public:
-  void dropGraph(Tensor t, SparseTensor destination, double rate = 0.99, double momentum = 0.0);
+  void dropGraph(Tensor t,
+                 SparseTensor destination,
+                 double rate = 0.99,
+                 double momentum = 0.0);
 };
 
 typedef Ptr<GradientDropBase> GradientDrop;

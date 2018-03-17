@@ -21,7 +21,7 @@ bool test_vectors(const std::vector<float>& output, const std::vector<float>& co
 int main(int argc, char** argv) {
   auto config = Config(argc, argv, ConfigMode::training, false);
   auto graph = New<ExpressionGraph>(false);
-  graph->setDevice(0);
+  graph->setDevice({0, DeviceType::gpu});
   graph->reserveWorkspaceMB(128);
 
   int dimBatch = 2;
@@ -42,13 +42,13 @@ int main(int argc, char** argv) {
   }
 
   auto x = graph->param("x", {dimBatch, dimWord, batchLength},
-                        keywords::init=inits::from_vector(embData));
+                        inits::from_vector(embData));
 
   auto xMask = graph->constant({dimBatch, 1, batchLength},
-                               keywords::init=inits::from_vector(embMask));
+                               inits::from_vector(embMask));
 
   // auto pooling = MaxPooling("pooling")(x, xMask);
-  // auto idx = graph->constant({elemNum, 1}, keywords::init=inits::zeros);
+  // auto idx = graph->constant({elemNum, 1}, inits::zeros);
   // auto ce = cross_entropy(pooling, idx);
   // auto cost = mean(sum(ce, keywords::axis=2), keywords::axis=0);
 

@@ -42,21 +42,21 @@ public:
         continue;
 
       Shape shape;
-      if(numpy[name].shape.size() == 2) {
+      if(numpy[name]->shape.size() == 2) {
         shape.resize(2);
-        shape.set(0, numpy[name].shape[0]);
-        shape.set(1, numpy[name].shape[1]);
-      } else if(numpy[name].shape.size() == 1) {
+        shape.set(0, numpy[name]->shape[0]);
+        shape.set(1, numpy[name]->shape[1]);
+      } else if(numpy[name]->shape.size() == 1) {
         shape.resize(2);
         shape.set(0, 1);
-        shape.set(1, numpy[name].shape[0]);
+        shape.set(1, numpy[name]->shape[0]);
       }
 
       std::string pName = name;
       if(nameMap_.count(name))
         pName = nameMap_[name];
 
-      graph->param(pName, shape, init = inits::from_numpy(numpy[name]));
+      graph->param(pName, shape, inits::from_numpy(numpy[name]));
     }
 
     graph->setReloaded(true);
@@ -74,11 +74,9 @@ public:
       for(auto& kv : nameMap_)
         nameMapRev_.insert({kv.second, kv.first});
 
-    graph->getBackend()->setDevice(graph->getDevice());
-
     for(auto p : graph->params()->getMap()) {
       std::vector<float> v;
-      p.second->val() >> v;
+      p.second->val()->get(v);
 
       unsigned dim;
       if(p.second->shape()[0] == 1) {
@@ -196,7 +194,7 @@ private:
   }
 
   void createAmunConfig(const std::string& name) {
-    YAML::Node amun;
+    Config::YamlNode amun;
     // Amun has only CPU decoder for deep Nematus models
     amun["cpu-threads"] = 16;
     amun["gpu-threads"] = 0;
@@ -206,7 +204,7 @@ private:
     auto vocabs = options_->get<std::vector<std::string>>("vocabs");
     amun["source-vocab"] = vocabs[0];
     amun["target-vocab"] = vocabs[1];
-    amun["devices"] = options_->get<std::vector<int>>("devices");
+    amun["devices"] = options_->get<std::vector<size_t>>("devices");
     amun["normalize"] = true;
     amun["beam-size"] = 5;
     amun["relative-paths"] = false;

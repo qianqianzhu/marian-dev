@@ -102,7 +102,15 @@ public:
     }
 
     size_t localBeamSize = beamSize_;
-    auto nth = New<NthElement>(localBeamSize, dimBatch);
+
+    // @TODO: unify this
+    Ptr<NthElement> nth;
+#ifdef CUDA_FOUND
+    if(graph->getDevice().type == DeviceType::gpu)
+      nth = New<NthElementGPU>(localBeamSize, dimBatch, graph->getDevice());
+    else
+#endif
+      nth = New<NthElementCPU>(localBeamSize, dimBatch);
 
     Beams beams(dimBatch);
     for(auto& beam : beams)
@@ -133,7 +141,7 @@ public:
       if(first) {
         // no cost
         prevCosts = graph->constant({1, 1, 1, 1},
-                                    keywords::init = inits::from_value(0));
+                                    inits::from_value(0));
       } else {
         std::vector<float> beamCosts;
 
@@ -158,7 +166,7 @@ public:
 
         prevCosts
             = graph->constant({(int)localBeamSize, 1, dimBatch, 1},
-                              keywords::init = inits::from_vector(beamCosts));
+                              inits::from_vector(beamCosts));
       }
 
       //**********************************************************************

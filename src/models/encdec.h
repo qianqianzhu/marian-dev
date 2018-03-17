@@ -1,6 +1,10 @@
 #pragma once
 
 #include "marian.h"
+#include "layers/generic.h"
+#include "layers/guided_alignment.h"
+#include "model_base.h"
+#include "states.h"
 
 namespace marian {
 
@@ -11,7 +15,8 @@ protected:
   bool inference_{false};
   size_t batchIndex_{0};
 
-  virtual std::tuple<Expr, Expr> lookup(Expr srcEmbeddings,
+  virtual std::tuple<Expr, Expr> lookup(Ptr<ExpressionGraph> graph,
+                                        Expr srcEmbeddings,
                                         Ptr<data::CorpusBatch> batch) {
     using namespace keywords;
 
@@ -21,13 +26,12 @@ protected:
     int dimEmb = srcEmbeddings->shape()[-1];
     int dimWords = subBatch->batchWidth();
 
-    auto graph = srcEmbeddings->graph();
-    auto chosenEmbeddings = rows(srcEmbeddings, subBatch->indices());
+    auto chosenEmbeddings = rows(srcEmbeddings, subBatch->data());
 
     auto batchEmbeddings
         = reshape(chosenEmbeddings, {dimWords, dimBatch, dimEmb});
     auto batchMask = graph->constant(
-        {dimWords, dimBatch, 1}, init = inits::from_vector(subBatch->mask()));
+        {dimWords, dimBatch, 1}, inits::from_vector(subBatch->mask()));
 
     return std::make_tuple(batchEmbeddings, batchMask);
   }
@@ -92,7 +96,7 @@ public:
     else{
       yEmbFactory("prefix", prefix_ + "_lm_Wemb"); //Make fixed
     }
-    yEmbFactory("fixed", (!opt<bool>("trainable-interpolation") || !opt<bool>("lm-pretrained-embeddings")));
+//    yEmbFactory("fixed", (!opt<bool>("trainable-interpolation") || !opt<bool>("lm-pretrained-embeddings")));
 /*@TODO I have already loaded them as fixed, do I need to specify them as fixed here as well
     if(options_->has("embedding-fix-trg"))
       yEmbFactory("fixed", opt<bool>("embedding-fix-trg"));
@@ -109,23 +113,23 @@ public:
     int dimBatch = subBatch->batchSize();
     int dimWords = subBatch->batchWidth();
 
-    auto chosenEmbeddings = rows(yEmb, subBatch->indices());
+    auto chosenEmbeddings = rows(yEmb, subBatch->data());
 
     auto y
         = reshape(chosenEmbeddings, {dimWords, dimBatch, opt<int>("dim-emb")});
 
     auto yMask = graph->constant({dimWords, dimBatch, 1},
-                                 init = inits::from_vector(subBatch->mask()));
+                                 inits::from_vector(subBatch->mask()));
 
-    auto yIdx = graph->constant({(int)subBatch->indices().size(), 1},
-                                init = inits::from_vector(subBatch->indices()));
+    auto yData = graph->constant({(int)subBatch->data().size(), 1},
+                                 inits::from_vector(subBatch->data()));
 
     auto yShifted = shift(y, {1, 0, 0});
 
     state->getLMState()->setTargetEmbeddings(yShifted); //@TODO can LMSTATE not exist here?
     state->getLMState()->setTargetMask(yMask);
 
-    return std::make_tuple(yMask, yIdx);
+    return std::make_tuple(yMask, yData);
   }
 
   virtual void selectEmbeddingsLM(Ptr<ExpressionGraph> graph,
@@ -151,14 +155,14 @@ public:
     else {
       yEmbFactory("prefix", prefix_ + "_lm_Wemb");
     }
-    yEmbFactory("fixed", !opt<bool>("trainable-interpolation")); //Fixed embeddings for the target side.
+//    yEmbFactory("fixed", !opt<bool>("trainable-interpolation")); //Fixed embeddings for the target side.
 
     auto yEmb = yEmbFactory.construct();
 
     Expr selectedEmbs;
     if(embIdx.empty()) {
       selectedEmbs = graph->constant({1, 1, dimBatch, dimTrgEmb},
-                                     init = inits::zeros);
+                                     inits::zeros);
     } else {
       selectedEmbs = rows(yEmb, embIdx);
       selectedEmbs
@@ -199,16 +203,16 @@ public:
     int dimBatch = subBatch->batchSize();
     int dimWords = subBatch->batchWidth();
 
-    auto chosenEmbeddings = rows(yEmb, subBatch->indices());
+    auto chosenEmbeddings = rows(yEmb, subBatch->data());
 
     auto y
         = reshape(chosenEmbeddings, {dimWords, dimBatch, opt<int>("dim-emb")});
 
     auto yMask = graph->constant({dimWords, dimBatch, 1},
-                                 init = inits::from_vector(subBatch->mask()));
+                                 inits::from_vector(subBatch->mask()));
 
-    auto yIdx = graph->constant({(int)subBatch->indices().size(), 1},
-                                init = inits::from_vector(subBatch->indices()));
+    auto yData = graph->constant({(int)subBatch->data().size(), 1},
+                                 inits::from_vector(subBatch->data()));
 
     auto yShifted = shift(y, {1, 0, 0});
 
@@ -219,7 +223,8 @@ public:
       groundTruthLM(state, graph, batch); //@TODO I'm just using this for the side effect
     }                                   //I don't need to do anything else?
 
-    return std::make_tuple(yMask, yIdx);
+    return std::make_tuple(yMask, yData);
+
   }
 
   virtual void selectEmbeddings(Ptr<ExpressionGraph> graph,
@@ -246,7 +251,7 @@ public:
     Expr selectedEmbs;
     if(embIdx.empty()) {
       selectedEmbs = graph->constant({1, 1, dimBatch, dimTrgEmb},
-                                     init = inits::zeros);
+                                     inits::zeros);
     } else {
       selectedEmbs = rows(yEmb, embIdx);
       selectedEmbs
@@ -303,7 +308,7 @@ protected:
   std::vector<std::string> modelFeatures_;
 
   void saveModelParameters(const std::string& name) {
-    YAML::Node modelParams;
+    Config::YamlNode modelParams;
     for(auto& key : modelFeatures_)
       modelParams[key] = options_->getOptions()[key];
 
@@ -316,7 +321,7 @@ protected:
   }
 
   virtual void createDecoderConfig(const std::string& name) {
-    YAML::Node decoder;
+    Config::YamlNode decoder;
     decoder["models"] = std::vector<std::string>({name});
     decoder["vocabs"] = options_->get<std::vector<std::string>>("vocabs");
     decoder["normalize"] = opt<float>("normalize");
@@ -467,7 +472,7 @@ public:
 
       weights = graph->constant(
           {1, dimWords, dimBatch, 1},
-          keywords::init = inits::from_vector(batch->getDataWeights()));
+          inits::from_vector(batch->getDataWeights()));
     }
 
     auto cost = Cost(nextState->getProbs(),
@@ -503,25 +508,50 @@ public:
                                      size_t multiplier = 1) {
     auto stats = New<data::BatchStats>();
 
-    size_t step = 10;
-    size_t maxLength = opt<size_t>("max-length");
+    size_t numFiles = opt<std::vector<std::string>>("train-sets").size();
 
+    size_t first = opt<size_t>("mini-batch-fit-step");
+    size_t step = opt<size_t>("mini-batch-fit-step");
+
+    size_t maxLength = opt<size_t>("max-length");
     maxLength = std::ceil(maxLength / (float)step) * step;
 
-    size_t numFiles = opt<std::vector<std::string>>("train-sets").size();
+    size_t maxBatch = 512;
+    bool fits = true;
+    while(fits) {
+      std::vector<size_t> lengths(numFiles, first);
+      auto batch = data::CorpusBatch::fakeBatch(lengths, maxBatch, options_);
+      build(graph, batch);
+      fits = graph->fits();
+      if(fits)
+        maxBatch *= 2;
+    }
+
     for(size_t i = step; i <= maxLength; i += step) {
-      size_t batchSize = step;
+      size_t start = 1;
+      size_t end = maxBatch;
+
       std::vector<size_t> lengths(numFiles, i);
       bool fits = true;
-      do {
-        auto batch = data::CorpusBatch::fakeBatch(lengths, batchSize, options_);
 
+      do {
+        size_t current = (start + end) / 2;
+        //std::cerr << i << " " << current << std::endl;
+        auto batch = data::CorpusBatch::fakeBatch(lengths, current, options_);
         build(graph, batch);
         fits = graph->fits();
-        if(fits)
+
+        if(fits) {
           stats->add(batch, multiplier);
-        batchSize += step;
-      } while(fits);
+          start = current + 1;
+        }
+        else {
+          end = current - 1;
+        }
+      } while(end - start > step);
+      //} while(start <= end);
+
+      maxBatch = start;
     }
     return stats;
   }

@@ -5,6 +5,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include "3rd_party/yaml-cpp/yaml.h"
+#include "common/definitions.h"
 #include "common/file_stream.h"
 #include "common/logging.h"
 
@@ -32,6 +33,7 @@ public:
   void parseOptions(int argc, char** argv, bool validate);
 
   YAML::Node getConfig() const;
+  std::vector<DeviceId> getDevices();
 
 private:
   ConfigMode mode_;
@@ -39,6 +41,7 @@ private:
   YAML::Node config_;
 
   bool has(const std::string& key) const;
+
   template <typename T>
   T get(const std::string& key) const {
     return config_[key].as<T>();
@@ -52,5 +55,6 @@ private:
   void addOptionsTranslate(boost::program_options::options_description&);
 
   void validateOptions() const;
+  void validateDevices() const;
 };
 }

@@ -106,21 +106,21 @@ public:
         continue;
 
       Shape shape;
-      if(numpy[name].shape.size() == 2) {
+      if(numpy[name]->shape.size() == 2) {
         shape.resize(2);
-        shape.set(0, numpy[name].shape[0]);
-        shape.set(1, numpy[name].shape[1]);
-      } else if(numpy[name].shape.size() == 1) {
+        shape.set(0, numpy[name]->shape[0]);
+        shape.set(1, numpy[name]->shape[1]);
+      } else if(numpy[name]->shape.size() == 1) {
         shape.resize(2);
         shape.set(0, 1);
-        shape.set(1, numpy[name].shape[0]);
+        shape.set(1, numpy[name]->shape[0]);
       }
 
       std::string pName = name;
       if(nameMap.count(name))
         pName = nameMap[name];
 
-      graph->param(pName, shape, init = inits::from_numpy(numpy[name]));
+      graph->param(pName, shape, inits::from_numpy(numpy[name]));
     }
 
     graph->setReloaded(true);
@@ -177,14 +177,12 @@ public:
            {"encoder_bi_r_gamma1", "encoder_r_gamma1"},
            {"encoder_bi_r_gamma2", "encoder_r_gamma2"}};
 
-    graph->getBackend()->setDevice(graph->getDevice());
-
     unsigned shape[2];
     std::string mode = "w";
 
     for(auto p : graph->params()->getMap()) {
       std::vector<float> v;
-      p.second->val() >> v;
+      p.second->val()->get(v);
 
       unsigned dim;
       if(p.second->shape()[0] == 1) {
@@ -218,11 +216,11 @@ public:
 
 private:
   void createAmunConfig(const std::string& name) {
-    YAML::Node amun;
+    Config::YamlNode amun;
     auto vocabs = options_->get<std::vector<std::string>>("vocabs");
     amun["source-vocab"] = vocabs[0];
     amun["target-vocab"] = vocabs[1];
-    amun["devices"] = options_->get<std::vector<int>>("devices");
+    amun["devices"] = options_->get<std::vector<size_t>>("devices");
     amun["normalize"] = opt<float>("normalize") > 0;
     amun["beam-size"] = opt<size_t>("beam-size");
     amun["relative-paths"] = false;

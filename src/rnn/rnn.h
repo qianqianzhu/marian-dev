@@ -1,19 +1,15 @@
 #pragma once
 
+#include "marian.h"
+#include "layers/generic.h"
+#include "rnn/types.h"
+#include "rnn/cells.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <iomanip>
 #include <string>
-
-#include "common/definitions.h"
-#include "graph/expression_graph.h"
-#include "graph/expression_operators.h"
-#include "layers/generic.h"
-
-#include "rnn/attention.h"
-#include "rnn/cells.h"
-#include "rnn/types.h"
 
 namespace marian {
 namespace rnn {
@@ -105,7 +101,7 @@ private:
     int dimBatch = input->shape()[-2];
     int dimState = cell_->getOptions()->get<int>("dimState");
 
-    auto output = graph->zeros(keywords::shape = {1, dimBatch, dimState});
+    auto output = graph->zeros({1, dimBatch, dimState});
     Expr cell = output;
     State startState{output, cell};
 
@@ -114,7 +110,7 @@ private:
 
   SingleLayerRNN(Ptr<ExpressionGraph> graph, Ptr<Options> options)
       : BaseRNN(graph, options),
-        direction_(options->get<dir>("direction", dir::forward)) {}
+        direction_((dir)options->get<int>("direction", (int)dir::forward)) {}
 
 public:
   friend RNN;

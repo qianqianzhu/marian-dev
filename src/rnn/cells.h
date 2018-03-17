@@ -1,17 +1,14 @@
 #pragma once
 
+#include "marian.h"
+#include "layers/generic.h"
+#include "rnn/types.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <iomanip>
 #include <string>
-
-#include "common/definitions.h"
-#include "graph/expression_graph.h"
-#include "graph/expression_operators.h"
-#include "layers/generic.h"
-
-#include "rnn/rnn.h"
 
 namespace marian {
 namespace rnn {
@@ -23,7 +20,6 @@ private:
   Expr gamma2_;
 
   bool layerNorm_;
-  bool fixed_;
   float dropout_;
 
   Expr dropMaskX_;
@@ -36,22 +32,19 @@ public:
     std::string prefix = options_->get<std::string>("prefix");
 
     layerNorm_ = options_->get<bool>("layer-normalization", false);
-    fixed_ = opt<bool>("fixed", false);
     dropout_ = options_->get<float>("dropout", 0);
 
     U_ = graph->param(prefix + "_U",
                       {dimState, dimState},
-                      keywords::init = inits::glorot_uniform,
-                      keywords::fixed = fixed_);
+                      inits::glorot_uniform);
 
     if(dimInput)
       W_ = graph->param(prefix + "_W",
                         {dimInput, dimState},
-                        keywords::init = inits::glorot_uniform,
-                        keywords::fixed = fixed_);
+                        inits::glorot_uniform);
 
     b_ = graph->param(
-        prefix + "_b", {1, dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_b", {1, dimState}, inits::zeros);
 
     if(dropout_ > 0.0f) {
       if(dimInput)
@@ -63,12 +56,10 @@ public:
       if(dimInput)
         gamma1_ = graph->param(prefix + "_gamma1",
                                {1, 3 * dimState},
-                               keywords::init = inits::from_value(1.f),
-                               keywords::fixed = fixed_);
+                               inits::from_value(1.f));
       gamma2_ = graph->param(prefix + "_gamma2",
                              {1, 3 * dimState},
-                             keywords::init = inits::from_value(1.f),
-                             keywords::fixed = fixed_);
+                             inits::from_value(1.f));
     }
   }
 
@@ -133,7 +124,6 @@ protected:
 
   bool final_;
   bool layerNorm_;
-  bool fixed_;
   float dropout_;
 
   Expr dropMaskX_;
@@ -148,45 +138,40 @@ public:
     std::string prefix = opt<std::string>("prefix");
 
     layerNorm_ = opt<bool>("layer-normalization", false);
-    fixed_ = opt<bool>("fixed", false);
     dropout_ = opt<float>("dropout", 0);
     final_ = opt<bool>("final", false);
 
     auto U = graph->param(prefix + "_U",
                           {dimState, 2 * dimState},
-                          keywords::init = inits::glorot_uniform,
-                          keywords::fixed = fixed_);
+                          inits::glorot_uniform);
     auto Ux = graph->param(prefix + "_Ux",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform,
-                           keywords::fixed = fixed_);
+                           inits::glorot_uniform);
     U_ = concatenate({U, Ux}, keywords::axis = -1);
 
     if(dimInput > 0) {
       auto W = graph->param(prefix + "_W",
                             {dimInput, 2 * dimState},
-                            keywords::init = inits::glorot_uniform,
-                            keywords::fixed = fixed_);
+                            inits::glorot_uniform);
       auto Wx = graph->param(prefix + "_Wx",
                              {dimInput, dimState},
-                             keywords::init = inits::glorot_uniform,
-                             keywords::fixed = fixed_);
+                             inits::glorot_uniform);
       W_ = concatenate({W, Wx}, keywords::axis = -1);
     }
 
     auto b = graph->param(
-        prefix + "_b", {1, 2 * dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_b", {1, 2 * dimState}, inits::zeros);
     auto bx = graph->param(
-        prefix + "_bx", {1, dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_bx", {1, dimState}, inits::zeros);
     b_ = concatenate({b, bx}, keywords::axis = -1);
 
     // @TODO use this and adjust Amun model type saving and loading
     // U_ = graph->param(prefix + "_U", {dimState, 3 * dimState},
-    //                  keywords::init=inits::glorot_uniform);
+    //                  (Expr a) : UnaryNodeOp(a)inits::glorot_uniform);
     // W_ = graph->param(prefix + "_W", {dimInput, 3 * dimState},
-    //                  keywords::init=inits::glorot_uniform);
+    //                  (Expr a) : UnaryNodeOp(a)inits::glorot_uniform);
     // b_ = graph->param(prefix + "_b", {1, 3 * dimState},
-    //                  keywords::init=inits::zeros);
+    //                  (Expr a) : UnaryNodeOp(a)inits::zeros);
 
     if(dropout_ > 0.0f) {
       if(dimInput)
@@ -198,12 +183,10 @@ public:
       if(dimInput)
         gamma1_ = graph->param(prefix + "_gamma1",
                                {1, 3 * dimState},
-                               keywords::init = inits::from_value(1.f),
-                               keywords::fixed = fixed_);
+                               inits::from_value(1.f));
       gamma2_ = graph->param(prefix + "_gamma2",
                              {1, 3 * dimState},
-                             keywords::init = inits::from_value(1.f),
-                             keywords::fixed = fixed_);
+                             inits::from_value(1.f));
     }
   }
 
@@ -248,7 +231,7 @@ public:
     if(xWs.empty()) {
       if(!fakeInput_ || fakeInput_->shape() != sU->shape())
         fakeInput_
-            = sU->graph()->constant(sU->shape(), keywords::init = inits::zeros);
+            = sU->graph()->constant(sU->shape(), inits::zeros);
       xW = fakeInput_;
     } else {
       xW = xWs.front();
@@ -292,7 +275,6 @@ protected:
   bool transition_;
   // Use layer normalization
   bool layerNorm_;
-  bool fixed_;
 
   // Dropout probability
   float dropout_;
@@ -312,18 +294,15 @@ public:
     transition_ = opt<bool>("transition", false);
 
     layerNorm_ = opt<bool>("layer-normalization", false);
-    fixed_ = opt<bool>("fixed", false);
     dropout_ = opt<float>("dropout", 0);
     final_ = opt<bool>("final", false);
 
     auto U = graph->param(prefix + "_U",
                           {dimState, 2 * dimState},
-                          keywords::init = inits::glorot_uniform,
-                          keywords::fixed = fixed_);
+                          inits::glorot_uniform);
     auto Ux = graph->param(prefix + "_Ux",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform,
-                           keywords::fixed = fixed_);
+                           inits::glorot_uniform);
 
     if(layerNorm_) {
       U_ = U;
@@ -335,12 +314,10 @@ public:
     if(dimInput > 0) {
       auto W = graph->param(prefix + "_W",
                             {dimInput, 2 * dimState},
-                            keywords::init = inits::glorot_uniform,
-                            keywords::fixed = fixed_);
+                            inits::glorot_uniform);
       auto Wx = graph->param(prefix + "_Wx",
                              {dimInput, dimState},
-                             keywords::init = inits::glorot_uniform,
-                             keywords::fixed = fixed_);
+                             inits::glorot_uniform);
       if(layerNorm_) {
         W_ = W;
         Wx_ = Wx;
@@ -350,9 +327,9 @@ public:
     }
 
     auto b = graph->param(
-        prefix + "_b", {1, 2 * dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_b", {1, 2 * dimState}, inits::zeros);
     auto bx = graph->param(
-        prefix + "_bx", {1, dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_bx", {1, dimState}, inits::zeros);
 
     if(layerNorm_) {
       b_ = b;
@@ -361,11 +338,11 @@ public:
       // in specific cases we need to pass bx to the kernel
       if(encoder_ && transition_) {
         auto b0
-            = graph->constant({1, 2 * dimState}, keywords::init = inits::zeros);
+            = graph->constant({1, 2 * dimState}, inits::zeros);
         bbx_ = concatenate({b0, bx}, keywords::axis = -1);
       } else {
         bbx_
-            = graph->constant({1, 3 * dimState}, keywords::init = inits::zeros);
+            = graph->constant({1, 3 * dimState}, inits::zeros);
       }
     } else {
       bbx_ = concatenate({b, bx}, keywords::axis = -1);
@@ -381,32 +358,27 @@ public:
       if(dimInput) {
         W_lns_ = graph->param(prefix + "_W_lns",
                               {1, 2 * dimState},
-                              keywords::init = inits::from_value(1.f),
-                              keywords::fixed = fixed_);
+                              inits::from_value(1.f));
         W_lnb_ = graph->param(prefix + "_W_lnb",
                               {1, 2 * dimState},
-                              keywords::init = inits::zeros,
-                              keywords::fixed = fixed_);
+                              inits::zeros);
         Wx_lns_ = graph->param(prefix + "_Wx_lns",
                                {1, 1 * dimState},
-                               keywords::init = inits::from_value(1.f),
-                               keywords::fixed = fixed_);
+                               inits::from_value(1.f));
         Wx_lnb_ = graph->param(prefix + "_Wx_lnb",
                                {1, 1 * dimState},
-                               keywords::init = inits::zeros,
-                               keywords::fixed = fixed_);
+                               inits::zeros);
       }
       U_lns_ = graph->param(prefix + "_U_lns",
                             {1, 2 * dimState},
-                            keywords::init = inits::from_value(1.f),
-                            keywords::fixed = fixed_);
+                            inits::from_value(1.f));
       U_lnb_ = graph->param(
-          prefix + "_U_lnb", {1, 2 * dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+          prefix + "_U_lnb", {1, 2 * dimState}, inits::zeros);
       Ux_lns_ = graph->param(prefix + "_Ux_lns",
                              {1, 1 * dimState},
-                             keywords::init = inits::from_value(1.f), keywords::fixed = fixed_);
+                             inits::from_value(1.f));
       Ux_lnb_ = graph->param(
-          prefix + "_Ux_lnb", {1, 1 * dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+          prefix + "_Ux_lnb", {1, 1 * dimState}, inits::zeros);
     }
   }
 
@@ -496,7 +468,7 @@ public:
     if(transition_) {
       if(!fakeInput_ || fakeInput_->shape() != sU->shape())
         fakeInput_
-            = sU->graph()->constant(sU->shape(), keywords::init = inits::zeros);
+            = sU->graph()->constant(sU->shape(), inits::zeros);
       xW = fakeInput_;
     } else {
       xW = xWs.front();
@@ -524,7 +496,6 @@ protected:
   Expr gamma2_;
 
   bool layerNorm_;
-  bool fixed_;
   float dropout_;
 
   Expr dropMaskX_;
@@ -539,21 +510,18 @@ public:
     std::string prefix = opt<std::string>("prefix");
 
     layerNorm_ = opt<bool>("layer-normalization", false);
-    fixed_ = opt<bool>("fixed", false);
     dropout_ = opt<float>("dropout", 0);
 
     U_ = graph->param(prefix + "_U",
                       {dimState, 4 * dimState},
-                      keywords::init = inits::glorot_uniform,
-                      keywords::fixed = fixed_);
+                      inits::glorot_uniform);
     if(dimInput)
       W_ = graph->param(prefix + "_W",
                         {dimInput, 4 * dimState},
-                        keywords::init = inits::glorot_uniform,
-                        keywords::fixed = fixed_);
+                        inits::glorot_uniform);
 
     b_ = graph->param(
-        prefix + "_b", {1, 4 * dimState}, keywords::init = inits::zeros, keywords::fixed = fixed_);
+        prefix + "_b", {1, 4 * dimState}, inits::zeros);
 
     if(dropout_ > 0.0f) {
       if(dimInput)
@@ -565,10 +533,10 @@ public:
       if(dimInput)
         gamma1_ = graph->param(prefix + "_gamma1",
                                {1, 4 * dimState},
-                               keywords::init = inits::from_value(1.f), keywords::fixed = fixed_);
+                               inits::from_value(1.f));
       gamma2_ = graph->param(prefix + "_gamma2",
                              {1, 4 * dimState},
-                             keywords::init = inits::from_value(1.f), keywords::fixed = fixed_);
+                             inits::from_value(1.f));
     }
   }
 
@@ -618,7 +586,7 @@ public:
     if(xWs.empty()) {
       if(!fakeInput_ || fakeInput_->shape() != sU->shape())
         fakeInput_
-            = sU->graph()->constant(sU->shape(), keywords::init = inits::zeros);
+            = sU->graph()->constant(sU->shape(), inits::zeros);
       xW = fakeInput_;
     } else {
       xW = xWs.front();
@@ -655,20 +623,20 @@ public:
 
     Um_ = graph->param(prefix + "_Um",
                        {dimState, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     Wm_ = graph->param(prefix + "_Wm",
                        {dimInput, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     bm_ = graph->param(
-        prefix + "_bm", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bm", {1, dimState}, inits::zeros);
 
     if(CellType::layerNorm_) {
       gamma1m_ = graph->param(prefix + "_gamma1m",
                               {1, dimState},
-                              keywords::init = inits::from_value(1.f));
+                              inits::from_value(1.f));
       gamma2m_ = graph->param(prefix + "_gamma2m",
                               {1, dimState},
-                              keywords::init = inits::from_value(1.f));
+                              inits::from_value(1.f));
     }
   }
 
@@ -729,39 +697,39 @@ public:
 
     Uf_ = graph->param(prefix + "_Uf",
                        {dimState, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     Wf_ = graph->param(prefix + "_Wf",
                        {dimInput, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     bf_ = graph->param(
-        prefix + "_bf", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bf", {1, dimState}, inits::zeros);
 
     Ui_ = graph->param(prefix + "_Ui",
                        {dimState, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     Wi_ = graph->param(prefix + "_Wi",
                        {dimInput, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     bi_ = graph->param(
-        prefix + "_bi", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bi", {1, dimState}, inits::zeros);
 
     Uc_ = graph->param(prefix + "_Uc",
                        {dimState, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     Wc_ = graph->param(prefix + "_Wc",
                        {dimInput, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     bc_ = graph->param(
-        prefix + "_bc", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bc", {1, dimState}, inits::zeros);
 
     Uo_ = graph->param(prefix + "_Uo",
                        {dimState, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     Wo_ = graph->param(prefix + "_Wo",
                        {dimInput, dimState},
-                       keywords::init = inits::glorot_uniform);
+                       inits::glorot_uniform);
     bo_ = graph->param(
-        prefix + "_bo", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bo", {1, dimState}, inits::zeros);
   }
 
   State apply(std::vector<Expr> inputs, State state, Expr mask = nullptr) {
@@ -823,39 +791,39 @@ public:
 
     auto Uf = graph->param(prefix + "_Uf",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto Wf = graph->param(prefix + "_Wf",
                            {dimInput, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto bf = graph->param(
-        prefix + "_bf", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bf", {1, dimState}, inits::zeros);
 
     auto Ui = graph->param(prefix + "_Ui",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto Wi = graph->param(prefix + "_Wi",
                            {dimInput, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto bi = graph->param(
-        prefix + "_bi", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bi", {1, dimState}, inits::zeros);
 
     auto Uc = graph->param(prefix + "_Uc",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto Wc = graph->param(prefix + "_Wc",
                            {dimInput, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto bc = graph->param(
-        prefix + "_bc", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bc", {1, dimState}, inits::zeros);
 
     auto Uo = graph->param(prefix + "_Uo",
                            {dimState, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto Wo = graph->param(prefix + "_Wo",
                            {dimInput, dimState},
-                           keywords::init = inits::glorot_uniform);
+                           inits::glorot_uniform);
     auto bo = graph->param(
-        prefix + "_bo", {1, dimState}, keywords::init = inits::zeros);
+        prefix + "_bo", {1, dimState}, inits::zeros);
 
     U_ = concatenate({Uf, Ui, Uc, Uo}, keywords::axis = -1);
     W_ = concatenate({Wf, Wi, Wc, Wo}, keywords::axis = -1);

@@ -15,6 +15,8 @@ namespace marian {
 class Config {
 public:
   static size_t seed;
+  
+  typedef YAML::Node YamlNode;
 
   Config(const std::string options,
          ConfigMode mode = ConfigMode::training,
@@ -43,6 +45,8 @@ public:
                   bool validate = true) {
     auto parser = ConfigParser(argc, argv, mode, validate);
     config_ = parser.getConfig();
+    devices_ = parser.getDevices();
+    
     createLoggers(this);
 
     if(get<size_t>("seed") == 0)
@@ -98,6 +102,10 @@ public:
   YAML::Node getModelParameters();
   void loadModelParameters(const std::string& name);
 
+  const std::vector<DeviceId>& getDevices() {
+    return devices_;
+  }
+  
   void save(const std::string& name) {
     OutputFileStream out(name);
     (std::ostream&)out << *this;
@@ -116,6 +124,7 @@ public:
 
 private:
   YAML::Node config_;
+  std::vector<DeviceId> devices_;
 
   static void GetYamlFromNpz(YAML::Node&,
                              const std::string&,

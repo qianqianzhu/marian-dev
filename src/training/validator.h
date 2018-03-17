@@ -6,9 +6,11 @@
 
 #include "common/config.h"
 #include "common/utils.h"
+#include "3rd_party/threadpool.h"
 #include "data/batch_generator.h"
 #include "data/corpus.h"
 #include "graph/expression_graph.h"
+#include "training/training_state.h"
 #include "translator/beam_search.h"
 #include "translator/history.h"
 #include "translator/output_collector.h"
@@ -20,17 +22,26 @@ namespace marian {
 /**
  * @brief Base class for validators
  */
-class ValidatorBase {
+class ValidatorBase : public TrainingObserver {
 public:
   ValidatorBase(bool lowerIsBetter)
       : lowerIsBetter_(lowerIsBetter),
-        lastBest_{lowerIsBetter_ ? std::numeric_limits<float>::max()
-                                 : std::numeric_limits<float>::lowest()} {}
+        lastBest_{initScore()} {}
 
   virtual float validate(const std::vector<Ptr<ExpressionGraph>>& graphs) = 0;
   virtual std::string type() = 0;
 
   size_t stalled() { return stalled_; }
+
+  virtual void actAfterLoaded(TrainingState& state) {
+    lastBest_ = state.validBest;
+    stalled_ = state.stalled;
+  }
+
+  virtual float initScore() {
+    return lowerIsBetter_ ? std::numeric_limits<float>::max()
+                          : std::numeric_limits<float>::lowest();
+  }
 
 protected:
   bool lowerIsBetter_{true};
@@ -146,7 +157,6 @@ protected:
 
           if(!graph) {
             graph = graphs[id % graphs.size()];
-            graph->getBackend()->setDevice(graph->getDevice());
           }
 
           builder->clear(graph);
@@ -301,7 +311,6 @@ public:
 
           if(!graph) {
             graph = graphs[id % graphs.size()];
-            graph->getBackend()->setDevice(graph->getDevice());
             scorer = scorers[id % graphs.size()];
           }
 
