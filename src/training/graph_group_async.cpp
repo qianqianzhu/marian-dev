@@ -190,9 +190,9 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
       fetchParams(graph->params()->vals(), params_, t_id);
     }
 
-    graph->forward();
-    cost += costNode->scalar();
-    graph->backward();
+    //graph->forward();
+    //cost += costNode->scalar();
+    //graph->backward();
 
     Tensor gradients;
     if(tau_ > 1) {
@@ -212,14 +212,16 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
       num_seen_trg += batch->wordsTrg();
       num_seen_sentences += batch->size();
     } else {
-      gradients = graph->params()->grads();
+      //gradients = graph->params()->grads();
       num_seen_trg = batch->wordsTrg();
     }
 
+    mini_batch_sizes_words[t_id].push_back(batch->wordsTrg());
+    mini_batch_sizes_stsz[t_id].push_back(batch->size());
     t++;
 
     if(t % tau_ == 0) {
-      pushGradients(gradients, num_seen_trg, t_id);
+      //pushGradients(gradients, num_seen_trg, t_id);
       // Reset the counter of seen target words after gradient update
       num_seen_trg = 0;
       if(tau_ > 1)
@@ -260,7 +262,7 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
 
         if(movingAvg_)
           for(auto g : graphs_)
-            fetchParams(g->params()->vals(), paramsAvg_, t_id);
+            //fetchParams(g->params()->vals(), paramsAvg_, t_id);
 
         if(scheduler_->saving())
           this->save(graph);
@@ -280,6 +282,8 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
 void AsyncGraphGroup::finalize() {
   pool_->join_all(); // call before destructing thread pool
   pool_.reset(nullptr);
+  calculateMeanStd(mini_batch_sizes_words, std::string("words"));
+  calculateMeanStd(mini_batch_sizes_stsz, std::string("sentences"));
   finalized_ = true;
 }
 
