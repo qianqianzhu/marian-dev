@@ -14,9 +14,9 @@
 #include <boost/accumulators/statistics/variance.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
 #include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/framework/accumulator_set.hpp> 
-#include <boost/accumulators/framework/features.hpp> 
-#include <boost/accumulators/statistics/stats.hpp> 
+#include <boost/accumulators/framework/accumulator_set.hpp>
+#include <boost/accumulators/framework/features.hpp>
+#include <boost/accumulators/statistics/stats.hpp>
 
 namespace marian {
 
@@ -79,8 +79,8 @@ protected:
     for_each(a_vec.begin(), a_vec.end(), std::bind<void>(std::ref(acc), std::placeholders::_1));
     minibatches = minibatches + a_vec.size();
   }
-  LOG(info, "Mean target {} from {} minibatches: .", text, minibatches, extract::mean(acc));
-  LOG(info, "Standard deviation target {} from {} minibatches: .", text, minibatches, std::sqrt(variance(acc)));
+  LOG(info, "Mean target {} from {} minibatches: {}.", text, minibatches, extract::mean(acc));
+  LOG(info, "Standard deviation target {} from {} minibatches: {}.", text, minibatches, std::sqrt(variance(acc)));
 }
 
 public:
