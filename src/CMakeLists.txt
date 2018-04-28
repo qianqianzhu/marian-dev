@@ -14,6 +14,7 @@ add_library(marian STATIC
   data/corpus_base.cpp
   data/corpus.cpp
   data/corpus_sqlite.cpp
+  data/corpus_nbest.cpp
   data/text_input.cpp
 
   3rd_party/cnpy/cnpy.cpp
@@ -41,6 +42,7 @@ add_library(marian STATIC
   optimizers/optimizers.cpp
 
   models/model_factory.cpp
+  models/encoder_decoder.cpp
 
   translator/history.cpp
   translator/output_collector.cpp
@@ -55,7 +57,6 @@ add_library(marian STATIC
   training/graph_group_multinode.cpp
   training/validator.cpp
 
-  rescorer/score_collector.cpp
   $<TARGET_OBJECTS:libyaml-cpp>
   $<TARGET_OBJECTS:SQLiteCpp>)
 
@@ -71,8 +72,8 @@ cuda_add_library(marian_cuda
   tensors/gpu/cudnn_wrappers.cu
   translator/nth_element.cu
   translator/helpers.cu
-  training/dropper.cu
-  training/sparse_tensor.cu
+  training/gradient_dropping/gpu/dropper.cu
+  training/gradient_dropping/gpu/sparse_algorithm.cu
   STATIC)
 endif(CUDA_FOUND)
 

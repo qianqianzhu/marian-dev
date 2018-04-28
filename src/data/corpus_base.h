@@ -252,7 +252,7 @@ public:
    * @brief The number of sentences in the batch, target words.
    */
   size_t sizeTrg() const { return batches_.back()->batchSize(); }
-
+  
   /**
    * @brief The number of words for the longest sentence in the batch plus one.
    */
@@ -291,6 +291,8 @@ public:
     }
 
     auto batch = New<CorpusBatch>(batches);
+    
+    if(!options) return batch;
 
     if(options->has("guided-alignment")) {
       std::vector<float> alignment(batchSize * lengths.front() * lengths.back(),
@@ -420,7 +422,6 @@ public:
       std::cerr << std::endl;
     }
   }
-
 };
 
 class CorpusIterator;

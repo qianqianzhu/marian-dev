@@ -5,6 +5,9 @@
 #include "graph/node_operators_binary.h"
 #include "graph/node_operators_unary.h"
 
+#include "graph/auto_tuner.h"
+#include "tensors/cpu/int16.h"
+
 namespace marian {
 
 Expr debug(Expr a, const std::string& message) {
@@ -126,7 +129,6 @@ Expr repeat(Expr a, size_t repeats, keywords::axis_k ax) {
   return concatenate(std::vector<Expr>(repeats, a), ax);
 }
 
-
 Expr reshape(Expr a, Shape shape) {
   return Expression<ReshapeNodeOp>(a, shape);
 }
@@ -165,10 +167,7 @@ Expr flatten(Expr a) {
 }
 
 Expr flatten_2d(Expr a) {
-  Shape shape = {
-    a->shape().elements() / a->shape()[-1],
-    a->shape()[-1]
-  };
+  Shape shape = {a->shape().elements() / a->shape()[-1], a->shape()[-1]};
 
   return Expression<ReshapeNodeOp>(a, shape);
 }
@@ -203,12 +202,98 @@ Expr weighted_average(Expr in, Expr weights, keywords::axis_k ax) {
   return p / s;
 }
 
-Expr dot(Expr a, Expr b, bool transA, bool transB, float scalar) {
-  return Expression<DotNodeOp>(a, b, transA, transB, scalar);
+Expr dot(Expr a, Expr b, bool transA, bool transB, float scale) {
+  auto device = a->graph()->getDevice().type;
+  if(a->graph()->isOptimized() && device == DeviceType::cpu) {
+    // dotInt16 computes A * B.T, hence the transpose for B to get A * B
+    // if transA = false and transB = false.
+
+    return cpu::int16::dot(cpu::int16::quantize(transA ? transpose(a) : a),
+                           cpu::int16::quantize(transB ? b : transpose(b)),
+                           scale);
+  }
+  else {
+    return Expression<DotNodeOp>(a, b, transA, transB, scale);
+  }
 }
 
-Expr bdot(Expr a, Expr b, bool transA, bool transB, float scalar) {
-  return Expression<DotBatchedNodeOp>(a, b, transA, transB, scalar);
+Expr bdot(Expr a, Expr b, bool transA, bool transB, float scale) {
+  return Expression<DotBatchedNodeOp>(a, b, transA, transB, scale);
+}
+
+Expr affine(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
+  auto device = a->graph()->getDevice().type;
+  if(a->graph()->isOptimized() && device == DeviceType::cpu) {
+
+    bool autotune = true;
+    if(autotune) {
+
+      thread_local Ptr<AutoTuner<Expr>> tuner = New<AutoTuner<Expr>>();
+
+      // start with new set of algorithms
+      tuner->clear();
+
+      // lower precicion for shapes, reduces data sparsity
+      auto sh = [](Shape sh) {
+        for(int i = 0; i < sh.size(); ++i)
+          sh.set(i, sh[i] / 4);
+        return sh;
+      };
+
+      // create context for current call as hash
+      std::size_t hash = sh(a->shape()).hash();
+      boost::hash_combine(hash, sh(b->shape()).hash());
+      boost::hash_combine(hash, sh(bias->shape()).hash());
+      boost::hash_combine(hash, transA);
+      boost::hash_combine(hash, transB);
+
+      // add first algorithm variant (Int16)
+      size_t hash1 = hash;
+      boost::hash_combine(hash1, 1);
+      auto rec1 = [=](Expr e, bool stop = false) {
+        e->record(tuner, hash1, stop);
+        return e;
+      };
+      auto alg1 = [=]() {
+        return rec1(cpu::int16::affine(rec1(cpu::int16::quantize(transA ? rec1(transpose(a)) : a)),
+                                       cpu::int16::quantize(transB ? b : transpose(b)),
+                                       bias,
+                                       scale),
+                    true);
+      };
+      tuner->insert({hash1, alg1});
+
+      // add second algorithm variant (CBlas)
+      size_t hash2 = hash;
+      boost::hash_combine(hash2, 2);
+      auto rec2 = [=](Expr e, bool stop = false) {
+        e->record(tuner, hash2, stop);
+        return e;
+      };
+      auto alg2 = [=]() {
+        std::vector<Expr> nodes = {a, b, bias};
+        return rec2(Expression<AffineNodeOp>(nodes, transA, transB, scale),
+                    true);
+      };
+      tuner->insert({hash2, alg2});
+
+      // execute algorithm with autotuning
+      return tuner->run();
+
+    }
+    else {
+      // cpu int16 version
+      return cpu::int16::affine(cpu::int16::quantize(transA ? transpose(a) : a),
+                                cpu::int16::quantize(transB ? b : transpose(b)),
+                                bias,
+                                scale);
+    }
+  }
+  else {
+    // general version, MKL, CBlas or CUDA
+    std::vector<Expr> nodes = {a, b, bias};
+    return Expression<AffineNodeOp>(nodes, transA, transB, scale);
+  }
 }
 
 Expr transpose(Expr a) {
@@ -232,19 +317,13 @@ Expr step(Expr a, int step, int axis) {
 }
 
 Expr cross_entropy(Expr a, Expr b) {
-  //auto sOrig = a->shape();
-  //auto sOut = a->shape();
-  //Shape sTemp({sOrig[0] * sOrig[2] * sOrig[3], sOrig[1], 1, 1});
-  //sOut.set(1, 1);
-  //return reshape(Expression<CrossEntropyNodeOp>(reshape(a, sTemp), b), sOut);
+  // auto sOrig = a->shape();
+  // auto sOut = a->shape();
+  // Shape sTemp({sOrig[0] * sOrig[2] * sOrig[3], sOrig[1], 1, 1});
+  // sOut.set(1, 1);
+  // return reshape(Expression<CrossEntropyNodeOp>(reshape(a, sTemp), b), sOut);
 
   return Expression<CrossEntropyNodeOp>(a, b);
-}
-
-Expr affine(Expr a, Expr b, Expr c,
-            bool transA, bool transB, float scalar) {
-  std::vector<Expr> nodes = {a, b, c};
-  return Expression<AffineNodeOp>(nodes, transA, transB, scalar);
 }
 
 Expr plus(const std::vector<Expr>&) {
@@ -299,6 +378,7 @@ Expr highway(Expr y, Expr x, Expr t) {
 }
 
 Expr highway(const std::string prefix, Expr x) {
+  // clang-format off
   size_t outDim = x->shape()[-1];
   auto g = mlp::dense(x->graph())
       ("prefix", prefix + "_highway_d1")
@@ -311,6 +391,7 @@ Expr highway(const std::string prefix, Expr x) {
       ("activation", mlp::act::ReLU)
       .construct()->apply(x);
   return (g * relued) + ((1 - g) * x);
+  // clang-format on
 }
 
 // Expr batch_norm(Expr x, Expr gamma, Expr beta) {
@@ -334,41 +415,26 @@ Expr shift(Expr a, Shape shift) {
 
 #ifdef CUDA_FOUND
 
-Expr avg_pooling(
-    Expr x,
-    int height,
-    int width,
-    int padHeight,
-    int padWidth,
-    int strideHeight,
-    int strideWidth) {
-  return Expression<PoolingOp>(x,
-      height,
-      width,
-      padHeight,
-      padWidth,
-      strideHeight,
-      strideWidth,
-      "avg");
+Expr avg_pooling(Expr x,
+                 int height,
+                 int width,
+                 int padHeight,
+                 int padWidth,
+                 int strideHeight,
+                 int strideWidth) {
+  return Expression<PoolingOp>(
+      x, height, width, padHeight, padWidth, strideHeight, strideWidth, "avg");
 }
 
-Expr max_pooling(
-    Expr x,
-    int height,
-    int width,
-    int padHeight,
-    int padWidth,
-    int strideHeight,
-    int strideWidth)
-{
-  return Expression<PoolingOp>(x,
-      height,
-      width,
-      padHeight,
-      padWidth,
-      strideHeight,
-      strideWidth,
-      "max");
+Expr max_pooling(Expr x,
+                 int height,
+                 int width,
+                 int padHeight,
+                 int padWidth,
+                 int strideHeight,
+                 int strideWidth) {
+  return Expression<PoolingOp>(
+      x, height, width, padHeight, padWidth, strideHeight, strideWidth, "max");
 }
 
 Expr convert2cudnnFormat(Expr x) {
@@ -377,13 +443,13 @@ Expr convert2cudnnFormat(Expr x) {
   int embSize = x->shape()[2];
 
   std::vector<size_t> newIndeces;
-  for (int b = 0; b < numExamples; ++b) {
-    for (int t = 0; t < numWords; ++t) {
+  for(int b = 0; b < numExamples; ++b) {
+    for(int t = 0; t < numWords; ++t) {
       newIndeces.push_back((t * numExamples) + b);
     }
   }
 
-  auto xRows = reshape(x, {x->shape()[0] * x ->shape()[1], x->shape()[2]});
+  auto xRows = reshape(x, {x->shape()[0] * x->shape()[1], x->shape()[2]});
 
   Shape outShape({numExamples, 1, numWords, embSize});
   return reshape(rows(xRows, newIndeces), outShape);
@@ -397,8 +463,8 @@ Expr convertFromcudnnFormat(Expr x) {
   auto reshapedX = reshape(x, {batchDim * sentenceDim, embSize});
 
   std::vector<size_t> newIndeces;
-  for (int t = 0; t < sentenceDim; ++t) {
-    for (int b = 0; b < batchDim; ++b) {
+  for(int t = 0; t < sentenceDim; ++t) {
+    for(int b = 0; b < batchDim; ++b) {
       newIndeces.push_back(b * sentenceDim + t);
     }
   }
@@ -412,5 +478,4 @@ Expr pooling_with_masking(Expr x, Expr mask, int width, bool isEven) {
 }
 
 #endif
-
 }

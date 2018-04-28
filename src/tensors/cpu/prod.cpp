@@ -1,22 +1,52 @@
-/* All or part of this file was contributed by Intel under license:                                                                                                                          
- *   Copyright (C) 2017-2018 Intel Corporation                                                                                                                                               
- *   SPDX-License-Identifier: MIT                                                                                                                                                            
- */  
+/* All or part of this file was contributed by Intel under license:
+ *   Copyright (C) 2017-2018 Intel Corporation
+ *   SPDX-License-Identifier: MIT
+ */
 
-#include "tensors/tensor.h"
 #include "tensors/cpu/backend.h"
+#include "tensors/tensor.h"
 
 #if MKL_FOUND
 #include <mkl.h>
 #else
-#if BLAS_FOUND 
+#if BLAS_FOUND
 #include <cblas.h>
 #endif
 #endif
 
+#include "sharp/sse_gemm.h"
+
 namespace marian {
 
 namespace cpu {
+
+#if BLAS_FOUND
+inline void sgemm(bool transA, bool transB,
+                  int rows_a, int rows_b, int width,
+                  float alpha,
+                  float *a,
+                  int lda,
+                  float *b,
+                  int ldb,
+                  float beta,
+                  float *c,
+                  int ldc) {
+  cblas_sgemm(CblasRowMajor,
+              transA ? CblasTrans : CblasNoTrans,
+              transB ? CblasTrans : CblasNoTrans,
+              rows_a,
+              rows_b,
+              width,
+              alpha,
+              a,
+              lda,
+              b,
+              ldb,
+              beta,
+              c,
+              ldc);
+}
+#endif
 
 void Prod(marian::Tensor C,
           const marian::Tensor A,
@@ -46,16 +76,16 @@ void Prod(marian::Tensor C,
   if(transB)
     ldc = B->shape().elements() / B->shape()[-1];
 
-  cblas_sgemm(
-        CblasColMajor,
-        transB ? CblasTrans : CblasNoTrans,
-        transA ? CblasTrans : CblasNoTrans,
-        n, m, k,
+  sgemm(transA,
+        transB,
+        m,
+        n,
+        k,
         alpha,
-        B->data(),
-        ldb,
         A->data(),
         lda,
+        B->data(),
+        ldb,
         beta,
         C->data(),
         ldc);
@@ -73,7 +103,7 @@ void ProdBatched(marian::Tensor C,
                  float scalar) {
 #if BLAS_FOUND
   float alpha = scalar;
-  
+
   size_t batchA = A->shape().elements() / (A->shape()[-1] * A->shape()[-2]);
   size_t batchB = B->shape().elements() / (B->shape()[-1] * B->shape()[-2]);
 
@@ -94,34 +124,31 @@ void ProdBatched(marian::Tensor C,
   if(transB)
     ldc = B->shape()[-2];
 
-  auto opA = transA ? CblasTrans : CblasNoTrans;
-  auto opB = transB ? CblasTrans : CblasNoTrans;  
-    
   auto strideB = batchB == 1 ? 0 : n * k;
   auto strideA = batchA == 1 ? 0 : m * k;
   auto strideC = n * m;
-  
+
   int steps = std::max(batchA, batchB);
-  
+
   int offsetA = 0;
   int offsetB = 0;
   int offsetC = 0;
-  
+
   for(int i = 0; i < steps; ++i) {
-    cblas_sgemm(
-          CblasColMajor,
-          opB,
-          opA,
-          n, m, k,
+    sgemm(transA,
+          transB,
+          m,
+          n,
+          k,
           alpha,
-          B->data() + offsetB,
-          ldb,
           A->data() + offsetA,
           lda,
+          B->data() + offsetB,
+          ldb,
           beta,
           C->data() + offsetC,
           ldc);
-    
+
     offsetA += strideA;
     offsetB += strideB;
     offsetC += strideC;
@@ -129,6 +156,18 @@ void ProdBatched(marian::Tensor C,
 #else
   ABORT("Not implemented!");
 #endif
+}
+
+void ProdWithBias(marian::Tensor C,
+                  const marian::Tensor A,
+                  const marian::Tensor B,
+                  const marian::Tensor bias,
+                  bool transA,
+                  bool transB,
+                  float beta,
+                  float scalar) {
+  cpu::Prod(C, A, B, transA, transB, beta, scalar);
+  cpu::int16::AddBias(C, bias);
 }
 
 }

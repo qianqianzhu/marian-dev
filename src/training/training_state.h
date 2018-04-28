@@ -11,6 +11,7 @@ class TrainingState;
 
 class TrainingObserver {
 public:
+  virtual void init(TrainingState& state) {}
   virtual void actAfterEpoch(TrainingState& state) {}
   virtual void actAfterBatches(TrainingState& state) {}
   virtual void actAfterStalled(TrainingState& state) {}
@@ -34,6 +35,9 @@ public:
   size_t maxStalled{0};
   // Last best validation score
   float validBest{0.f};
+  std::string validator;
+  // List of validators
+  YAML::Node validators;
   // Reset optimizer parameters
   bool reset{false};
 
@@ -62,6 +66,7 @@ public:
 
   void registerObserver(Ptr<TrainingObserver> observer) {
     observers_.push_back(observer);
+    observers_.back()->init(*this);
   }
 
   void newEpoch() {
@@ -75,6 +80,7 @@ public:
   void newBatch() {
     ++batches;
     ++batchesEpoch;
+    loaded = false;
     validated = false;
     for(auto observer : observers_)
       observer->actAfterBatches(*this);
@@ -108,6 +114,8 @@ public:
     stalled = config["stalled"].as<size_t>();
     maxStalled = config["stalled-max"].as<size_t>();
     validBest = config["valid-best"].as<float>();
+    validator = config["validator"].as<std::string>();
+    validators = config["validators"];
     reset = config["reset"].as<bool>();
 
     eta = config["eta"].as<float>();
@@ -134,6 +142,8 @@ public:
     config["stalled"] = stalled;
     config["stalled-max"] = maxStalled;
     config["valid-best"] = validBest;
+    config["validator"] = validator;
+    config["validators"] = validators;
     config["reset"] = reset;
 
     config["eta"] = eta;

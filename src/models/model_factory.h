@@ -1,8 +1,9 @@
 #pragma once
 
 #include "marian.h"
+
+#include "models/encoder_decoder.h"
 #include "layers/factory.h"
-#include "encdec.h"
 
 namespace marian {
 
@@ -45,15 +46,15 @@ public:
     return Accumulator<EncoderDecoderFactory>(*this);
   }
 
-  virtual Ptr<EncoderDecoder> construct();
+  virtual Ptr<ModelBase> construct();
 };
 
 typedef Accumulator<EncoderDecoderFactory> encoder_decoder;
 
-Ptr<ModelBase> by_type(std::string type, Ptr<Options> options);
+Ptr<ModelBase> by_type(std::string type, usage, Ptr<Options> options);
 
-Ptr<ModelBase> from_options(Ptr<Options> options);
+Ptr<ModelBase> from_options(Ptr<Options> options, usage);
 
-Ptr<ModelBase> from_config(Ptr<Config> config);
+Ptr<ModelBase> from_config(Ptr<Config> config, usage);
 }
 }

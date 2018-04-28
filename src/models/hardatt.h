@@ -1,9 +1,10 @@
 #pragma once
 
 #include "marian.h"
+
 #include "layers/generic.h"
-#include "rnn/types.h"
 #include "rnn/attention_constructors.h"
+#include "rnn/types.h"
 
 #include <numeric>
 
@@ -17,17 +18,22 @@ public:
   DecoderStateHardAtt(const rnn::States& states,
                       Expr probs,
                       std::vector<Ptr<EncoderState>>& encStates,
+                      Ptr<data::CorpusBatch> batch,
                       const std::vector<size_t>& attentionIndices)
-      : DecoderState(states, probs, encStates),
+      : DecoderState(states, probs, encStates, batch),
         attentionIndices_(attentionIndices) {}
 
-  virtual Ptr<DecoderState> select(const std::vector<size_t>& selIdx, int beamSize) {
+  virtual Ptr<DecoderState> select(const std::vector<size_t>& selIdx,
+                                   int beamSize) {
     std::vector<size_t> selectedAttentionIndices;
     for(auto i : selIdx)
       selectedAttentionIndices.push_back(attentionIndices_[i]);
 
-    return New<DecoderStateHardAtt>(
-        states_.select(selIdx, beamSize), probs_, encStates_, selectedAttentionIndices);
+    return New<DecoderStateHardAtt>(states_.select(selIdx, beamSize),
+                                    probs_,
+                                    encStates_,
+                                    batch_,
+                                    selectedAttentionIndices);
   }
 
   virtual void setAttentionIndices(
@@ -85,11 +91,11 @@ public:
     Expr start;
     if(!meanContexts.empty()) {
       // apply single layer network to mean to map into decoder space
-      auto mlp = mlp::mlp(graph)                                   //
-                     .push_back(mlp::dense(graph)                  //
-                                ("prefix", prefix_ + "_ff_state")  //
-                                ("dim", opt<int>("dim-rnn"))       //
-                                ("activation", (int)mlp::act::tanh)//
+      auto mlp = mlp::mlp(graph)                                     //
+                     .push_back(mlp::dense(graph)                    //
+                                ("prefix", prefix_ + "_ff_state")    //
+                                ("dim", opt<int>("dim-rnn"))         //
+                                ("activation", (int)mlp::act::tanh)  //
                                 ("layer-normalization",
                                  opt<bool>("layer-normalization")));
       start = mlp->apply(meanContexts);
@@ -97,7 +103,7 @@ public:
 
     rnn::States startStates(opt<size_t>("dec-depth"), {start, start});
     return New<DecoderStateHardAtt>(
-        startStates, nullptr, encStates, std::vector<size_t>({0}));
+        startStates, nullptr, encStates, batch, std::vector<size_t>({0}));
   }
 
   virtual Ptr<DecoderState> step(Ptr<ExpressionGraph> graph,
@@ -133,8 +139,8 @@ public:
     int dimBeam = trgEmbeddings->shape()[-4];
 
     if(dropoutTrg) {
-      auto trgWordDrop = graph->dropout(dropoutTrg, {dimTrgWords, dimBatch, 1});
-      trgEmbeddings = dropout(trgEmbeddings, mask = trgWordDrop);
+      trgEmbeddings
+          = dropout(trgEmbeddings, dropoutTrg, {dimTrgWords, dimBatch, 1});
     }
 
     auto flatContext = reshape(context, {dimBatch * dimSrcWords, dimContext});
@@ -224,6 +230,7 @@ public:
     return New<DecoderStateHardAtt>(decStates,
                                     logits,
                                     stateHardAtt->getEncoderStates(),
+                                    stateHardAtt->getBatch(),
                                     stateHardAtt->getAttentionIndices());
   }
 
@@ -232,12 +239,12 @@ public:
     return att->getAlignments();
   }
 
-  virtual std::tuple<Expr, Expr> groundTruth(Ptr<DecoderState> state,
-                                             Ptr<ExpressionGraph> graph,
-                                             Ptr<data::CorpusBatch> batch) {
+  void embeddingsFromBatch(Ptr<ExpressionGraph> graph,
+                           Ptr<DecoderState> state,
+                           Ptr<data::CorpusBatch> batch) {
     using namespace keywords;
 
-    auto ret = DecoderBase::groundTruth(state, graph, batch);
+    DecoderBase::embeddingsFromBatch(graph, state, batch);
 
     auto subBatch = (*batch)[batchIndex_];
     int dimBatch = subBatch->batchSize();
@@ -258,16 +265,14 @@ public:
 
     std::dynamic_pointer_cast<DecoderStateHardAtt>(state)->setAttentionIndices(
         attentionIndices);
-
-    return ret;
   }
 
-  virtual void selectEmbeddings(Ptr<ExpressionGraph> graph,
-                                Ptr<DecoderState> state,
-                                const std::vector<size_t>& embIdx,
-                                int dimBatch,
-                                int beamSize) {
-    DecoderBase::selectEmbeddings(graph, state, embIdx, dimBatch, beamSize);
+  virtual void embeddingsFromPrediction(Ptr<ExpressionGraph> graph,
+                                        Ptr<DecoderState> state,
+                                        const std::vector<size_t>& embIdx,
+                                        int dimBatch,
+                                        int beamSize) {
+    DecoderBase::embeddingsFromPrediction(graph, state, embIdx, dimBatch, beamSize);
 
     auto stateHardAtt = std::dynamic_pointer_cast<DecoderStateHardAtt>(state);
 

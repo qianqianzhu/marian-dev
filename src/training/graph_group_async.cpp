@@ -1,6 +1,7 @@
 #include "training/graph_group_async.h"
-#include "tensors/tensor_operators.h"
 #include "functional/functional.h"
+#include "tensors/tensor_operators.h"
+#include "data/corpus_base.h"
 
 namespace marian {
 
@@ -124,7 +125,8 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
       totalSize -= __size__;
 
       Tensor param;
-      Ptr<TensorAllocator> allocator = New<TensorAllocator>(graph->getBackend());
+      Ptr<TensorAllocator> allocator
+          = New<TensorAllocator>(graph->getBackend());
       allocator->reserveExact(__size__ * sizeof(float));
       allocator->allocate(param, {1, __size__});
       paramsAlloc_.push_back(allocator);
@@ -142,7 +144,8 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
       int __size__ = std::min(shardSize_, totalSize);
       totalSize -= __size__;
       Tensor grad_;
-      Ptr<TensorAllocator> allocator_ = New<TensorAllocator>(graph->getBackend());
+      Ptr<TensorAllocator> allocator_
+          = New<TensorAllocator>(graph->getBackend());
 
       allocator_->reserveExact(__size__ * sizeof(float));
       allocator_->allocate(grad_, {1, __size__});
@@ -172,7 +175,8 @@ void AsyncGraphGroup::init(Ptr<data::Batch> batch) {
         int __size__ = std::min(shardSize_, totalSize);
         totalSize -= __size__;
         Tensor paramAvg;
-        Ptr<TensorAllocator> allocator = New<TensorAllocator>(graph->getBackend());
+        Ptr<TensorAllocator> allocator
+            = New<TensorAllocator>(graph->getBackend());
 
         allocator->reserveExact(__size__ * sizeof(float));
         allocator->allocate(paramAvg, {1, __size__});
@@ -198,6 +202,8 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
     thread_local Ptr<models::ModelBase> builder;
     thread_local size_t t = 0;
     thread_local size_t num_seen_words = 0;
+    thread_local size_t num_seen_trg = 0;
+    thread_local size_t num_seen_sentences = 0;
     thread_local int t_id = 0;
     thread_local float cost = 0;
     thread_local int sentences = 0;
@@ -266,41 +272,52 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
       gradients = accGradients;
 
       // Keep track of how many words we've calculated the error from
-      num_seen_words += batch_words;
+      num_seen_words += batch->words();
+      num_seen_trg += batch->wordsTrg();
+      num_seen_sentences += batch->size();
     } else {
       gradients = graph->params()->grads();
-      num_seen_words = batch_words;
+      num_seen_trg = batch->wordsTrg();
     }
 
     t++;
 
     if(t % tau_ == 0) {
-      pushGradients(gradients, num_seen_words, t_id);
-      // Reset the counter of seen words after gradient update
-      num_seen_words = 0;
-
+      pushGradients(gradients, num_seen_trg, t_id);
+      // Reset the counter of seen target words after gradient update
+      num_seen_trg = 0;
       if(tau_ > 1)
         gradients->set(0);
     }
 
-    if(t % (tau_ * gradientBufferSize_) == 0 && scheduler_) {
+    if(t % tau_ == 0 && scheduler_) {
       std::unique_lock<std::mutex> lock(schedulerMutex_);
 
       // Wait until the thread that wants to do validation is finished.
       pool_->wait_for_one(lock);
-      
-      cost /= (tau_ * gradientBufferSize_);
 
+      if (options_->get<std::string>("cost-type") != "ce-sum")
+        cost /= tau_;
 
-      //@TOOD AHAM
-      //scheduler_->update(cost, batch);
-      scheduler_->update(cost, sentences, words);
-      sentences = 0;
-      words = 0;
+      if (tau_ > 1) {
+        std::vector<size_t> fakeLength = {1, 1};
+        auto fb = data::CorpusBatch::fakeBatch(fakeLength,
+                                          num_seen_sentences,
+                                          NULL);
+        fb->front()->setWords(num_seen_words);
+        scheduler_->update(cost, fb);
+
+        num_seen_words = 0;
+        num_seen_sentences = 0;
+      } else {
+        scheduler_->update(cost, batch);
+      }
+
       cost = 0;
 
       if(scheduler_->saving() || scheduler_->validating()) {
-        // Wait with validation or saving until all other threads are done with update.
+        // Wait with validation or saving until all other threads are done with
+        // update.
         // We want to reuse the graphs for validation, so they need to be in
         // a safe state.
         pool_->wait_for_others(lock);
@@ -324,11 +341,10 @@ void AsyncGraphGroup::execute(Ptr<data::Batch> batch) {
   pool_->enqueue(task, batch);
 }
 
-void AsyncGraphGroup::wait() {
-  {
-    std::unique_lock<std::mutex> lock(schedulerMutex_);
-    pool_->wait_for_others(lock);
-    pool_->notify_others();
-  }
+void AsyncGraphGroup::finalize() {
+  pool_->join_all(); // call before destructing thread pool
+  pool_.reset(nullptr);
+  finalized_ = true;
 }
+
 }

@@ -9,8 +9,9 @@
 #include <vector>
 
 #include "common/definitions.h"
-#include "tensors/memory_piece.h"
 #include "tensors/device.h"
+#include "tensors/memory_piece.h"
+#include "tensors/types.h"
 
 namespace marian {
 
@@ -92,8 +93,8 @@ private:
     gaps_.swap(oldGaps);
 
     for(auto gap : oldGaps)
-      gaps_.insert(
-          Gap(device_->data() + std::distance(oldData, gap.data()), gap.size()));
+      gaps_.insert(Gap(device_->data() + std::distance(oldData, gap.data()),
+                       gap.size()));
     insertGap(Gap(device_->data() + oldSize, add));
 
     std::unordered_map<uint8_t*, Ptr<MemoryPiece>> oldAllocated;
@@ -141,7 +142,10 @@ private:
   }
 
 public:
-  Allocator(DeviceId deviceId, size_t bytes, size_t step, size_t alignment = 256)
+  Allocator(DeviceId deviceId,
+            size_t bytes,
+            size_t step,
+            size_t alignment = 256)
       : device_(DispatchDevice(deviceId, alignment)),
         step_(step),
         available_(0),
@@ -162,6 +166,16 @@ public:
   size_t capacity(size_t num) {
     return align(num * sizeof(T));
   }
+
+  size_t capacity(size_t num, Type type) {
+    return align(num * sizeOf(type));
+  }
+
+
+  Ptr<MemoryPiece> alloc(size_t num, Type type) {
+    return alloc(num * sizeOf(type));
+  }
+
 
   template <typename T>
   Ptr<MemoryPiece> alloc(size_t num) {

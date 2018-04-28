@@ -4,9 +4,9 @@
 #include <cstdlib>
 #include <limits>
 
+#include "3rd_party/threadpool.h"
 #include "common/config.h"
 #include "common/utils.h"
-#include "3rd_party/threadpool.h"
 #include "data/batch_generator.h"
 #include "data/corpus.h"
 #include "graph/expression_graph.h"
@@ -23,31 +23,35 @@ namespace marian {
  * @brief Base class for validators
  */
 class ValidatorBase : public TrainingObserver {
+protected:
+  bool lowerIsBetter_{true};
+  float lastBest_;
+  size_t stalled_{0};
+  std::mutex mutex_;
+
 public:
   ValidatorBase(bool lowerIsBetter)
-      : lowerIsBetter_(lowerIsBetter),
-        lastBest_{initScore()} {}
+      : lowerIsBetter_(lowerIsBetter), lastBest_{initScore()} {}
 
   virtual float validate(const std::vector<Ptr<ExpressionGraph>>& graphs) = 0;
   virtual std::string type() = 0;
 
+  float lastBest() { return lastBest_; }
   size_t stalled() { return stalled_; }
-
-  virtual void actAfterLoaded(TrainingState& state) {
-    lastBest_ = state.validBest;
-    stalled_ = state.stalled;
-  }
 
   virtual float initScore() {
     return lowerIsBetter_ ? std::numeric_limits<float>::max()
                           : std::numeric_limits<float>::lowest();
   }
 
-protected:
-  bool lowerIsBetter_{true};
-  float lastBest_;
-  size_t stalled_{0};
-  std::mutex mutex_;
+  virtual void actAfterLoaded(TrainingState& state) {
+    if(state.validators[type()]) {
+      lastBest_ = state.validators[type()]["last-best"].as<float>();
+      stalled_ = state.validators[type()]["stalled"].as<size_t>();
+    }
+  }
+
+
 };
 
 template <class DataSet>
@@ -98,7 +102,8 @@ protected:
                            Ptr<data::BatchGenerator<DataSet>>)
       = 0;
 
-  void updateStalled(const std::vector<Ptr<ExpressionGraph>>& graphs, float val) {
+  void updateStalled(const std::vector<Ptr<ExpressionGraph>>& graphs,
+                     float val) {
     if((lowerIsBetter_ && lastBest_ > val)
        || (!lowerIsBetter_ && lastBest_ < val)) {
       stalled_ = 0;
@@ -124,7 +129,7 @@ public:
     opts->merge(options);
     opts->set("inference", true);
     opts->set("cost-type", "ce-sum");
-    builder_ = models::from_options(opts);
+    builder_ = models::from_options(opts, models::usage::scoring);
   }
 
   std::string type() { return options_->get<std::string>("cost-type"); }
@@ -153,7 +158,7 @@ protected:
 
         auto task = [=, &cost, &samples, &words](size_t id) {
           thread_local Ptr<ExpressionGraph> graph;
-          thread_local auto builder = models::from_options(opts);
+          thread_local auto builder = models::from_options(opts, models::usage::scoring);
 
           if(!graph) {
             graph = graphs[id % graphs.size()];
@@ -192,7 +197,7 @@ public:
     Ptr<Options> opts = New<Options>();
     opts->merge(options);
     opts->set("inference", true);
-    builder_ = models::from_options(opts);
+    builder_ = models::from_options(opts, models::usage::raw);
 
     ABORT_IF(!options_->has("valid-script-path"),
              "valid-script metric but no script given");
@@ -226,11 +231,10 @@ public:
   TranslationValidator(std::vector<Ptr<Vocab>> vocabs, Ptr<Config> options)
       : Validator(vocabs, options, false),
         quiet_(options_->get<bool>("quiet-translation")) {
-
     Ptr<Options> opts = New<Options>();
     opts->merge(options);
     opts->set("inference", true);
-    builder_ = models::from_options(opts);
+    builder_ = models::from_options(opts, models::usage::translation);
 
     if(!options_->has("valid-script-path"))
       LOG_VALID(warn,
@@ -265,7 +269,7 @@ public:
 
     std::vector<Ptr<Scorer>> scorers;
     for(auto graph : graphs) {
-      auto builder = models::from_options(mopts);
+      auto builder = models::from_options(mopts, models::usage::translation);
       Ptr<Scorer> scorer = New<ScorerWrapper>(builder, "", 1.0f, model);
       scorers.push_back(scorer);
     }
@@ -314,7 +318,8 @@ public:
             scorer = scorers[id % graphs.size()];
           }
 
-          auto search = New<BeamSearch>(options_, std::vector<Ptr<Scorer>>{scorer});
+          auto search
+              = New<BeamSearch>(options_, std::vector<Ptr<Scorer>>{scorer});
           auto histories = search->search(graph, batch);
 
           for(auto history : histories) {
