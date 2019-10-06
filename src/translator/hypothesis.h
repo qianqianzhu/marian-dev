@@ -60,6 +60,14 @@ public:
       return targetWords;
   }
 
+  float GetLastWordScore() {
+    if (prevHyp_) {
+      return pathScore_ - prevHyp_->GetPathScore();
+    } else {
+      return pathScore_;
+    }
+  }
+
   std::vector<float> TracebackScores() {
     std::vector<float> scores;
     // traverse hypotheses backward

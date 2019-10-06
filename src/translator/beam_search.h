@@ -217,6 +217,29 @@ public:
     return newBeams;
   }
 
+  Beams filterForParaphrases(const Beams& beams, std::vector<int>& vocabIDs) {
+    Beams newBeams;
+    ABORT_IF(beams.size() > 1, "Batched decoding not yet supported");
+    for(auto beam : beams) {
+      Beam newBeam;
+      for (auto hyp : beam) {
+        float score = hyp->GetLastWordScore();
+        size_t len = hyp->GetLength();
+        if (len >= vocabIDs.size()) {
+          newBeam.push_back(hyp);
+          continue;
+        }
+        if (score > -0.4 && vocabIDs[len] == hyp->GetWord()) {
+          newBeam.push_back(New<Hypothesis>(New<Hypothesis>(trie_), 1, 0, -9999));
+        } else {
+          newBeam.push_back(hyp);
+        }
+      }
+      newBeams.push_back(newBeam);
+    }
+    return newBeams;
+  }
+
     Beams reverseFilterForContinuations(const Beams& beams, size_t maxLength) {
     Beams newBeams;
     for(auto beam : beams) {
@@ -257,6 +280,17 @@ public:
   // main decoding function
   Histories search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch) {
     int dimBatch = (int)batch->size();
+
+    //Get the vocabulary IDs from the file
+    static std::ifstream goldtrans("/tmp/tst");
+    std::string line;
+    std::vector<std::string> num_tokens;
+    std::getline(goldtrans, line);
+    trieannosaurus::tokenizeSentence(line, num_tokens);
+    std::vector<int> vocabIDsent;
+    for (auto&& id : num_tokens) {
+      vocabIDsent.push_back(std::stoi(id));
+    }
 
     Histories histories;
     for(int i = 0; i < dimBatch; ++i) {
