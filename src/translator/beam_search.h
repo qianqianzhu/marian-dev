@@ -36,9 +36,9 @@ public:
         trie_(trie) {
           if (options_->get<std::string>("trie-pruning-path") != "") {
             triePrune_ = true;
-            if (options_->get<std::string>("paraphrase") == "true") {
-              paraphrase_ = true;
-            }
+          }
+          if (options_->get<std::string>("paraphrase-source") != "") {
+            paraphrase_ = true;
           }
         }
 
@@ -224,38 +224,15 @@ public:
       Beam newBeam;
       for (auto hyp : beam) {
         float score = hyp->GetLastWordScore();
-        size_t len = hyp->GetLength();
+        size_t len = hyp->GetLength() - 1;
         if (len >= vocabIDs.size()) {
           newBeam.push_back(hyp);
           continue;
         }
-        if (score > -0.4 && vocabIDs[len] == hyp->GetWord()) {
+        if (score < -0.4 && vocabIDs[len] == hyp->GetWord()) {
           newBeam.push_back(New<Hypothesis>(New<Hypothesis>(trie_), 1, 0, -9999));
         } else {
           newBeam.push_back(hyp);
-        }
-      }
-      newBeams.push_back(newBeam);
-    }
-    return newBeams;
-  }
-
-    Beams reverseFilterForContinuations(const Beams& beams, size_t maxLength) {
-    Beams newBeams;
-    for(auto beam : beams) {
-      Beam newBeam;
-      bool allFake = true; /* Keep track if all hypothesis we have are placeholders
-                            * if that happens we should end search prematurely
-                            * by setting the beam to empty*/
-      for (auto hyp : beam) {
-        if (hyp->hasTrieContinuatuions() || hyp->GetLength() >= maxLength ) {
-          newBeam.push_back(New<Hypothesis>(New<Hypothesis>(trie_), 1, 0, -9999));
-        } else {
-          newBeam.push_back(hyp);
-          allFake = false;
-        }
-        if (allFake) {
-          newBeam.resize(0);
         }
       }
       newBeams.push_back(newBeam);
@@ -281,15 +258,17 @@ public:
   Histories search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch) {
     int dimBatch = (int)batch->size();
 
-    //Get the vocabulary IDs from the file
-    static std::ifstream goldtrans("/tmp/tst");
-    std::string line;
-    std::vector<std::string> num_tokens;
-    std::getline(goldtrans, line);
-    trieannosaurus::tokenizeSentence(line, num_tokens);
+    //Get the vocabulary IDs from the decode text file
     std::vector<int> vocabIDsent;
-    for (auto&& id : num_tokens) {
-      vocabIDsent.push_back(std::stoi(id));
+    if (paraphrase_) {
+      static std::ifstream goldtrans(options_->get<std::string>("paraphrase-source"));
+      std::string line;
+      std::vector<std::string> num_tokens;
+      std::getline(goldtrans, line);
+      trieannosaurus::tokenizeSentence(line, num_tokens);
+      for (auto&& id : num_tokens) {
+        vocabIDsent.push_back(std::stoi(id));
+      }
     }
 
     Histories histories;
@@ -401,7 +380,7 @@ public:
       //Pathscores if of shape {12, 1, 1, 36000}} AFTER the first step, otherwise it's {1, 1, 1, 36000}
       //UNLESS It's batched then DIM0 is the batch size and DIM2 is the TrieSize
 
-      if (!paraphrase_ && !first && triePrune_) {
+      if (!first && triePrune_) {
         for (int i = 0; i < beams.size(); i++) {
           for (size_t j = 0; j < beams[i].size(); j++) {
             if (dimBatch > 1) {
@@ -415,7 +394,7 @@ public:
 
       getNBestList(beamSizes, pathScores->val(), outPathScores, outKeys, first);
 
-      if (!paraphrase_ && triePrune_) {
+      if (triePrune_) {
         //Everything that came out of the trie will have a score >1
         //Hence fix the scores
         for (auto&& score : outPathScores) {
@@ -435,15 +414,14 @@ public:
                      first,
                      batch);
 
-      if ((!first || !paraphrase_) && triePrune_){ // only prune if we are translating, or if
+      if (!first && triePrune_){ // only prune if we are translating, or if
                                                    // we are not at the first word while paraphrasing
         size_t maxSentenceLength = std::ceil(options_->get<float>("max-length-factor")* batch->front()->batchWidth());
-        if (paraphrase_) {
-          beams = reverseFilterForContinuations(beams, maxSentenceLength);
-        } else {
-          beams = filterForContinuations(beams, maxSentenceLength);
-        }
-        
+        beams = filterForContinuations(beams, maxSentenceLength);
+      }
+
+      if (options_->get<std::string>("paraphrase-source") != ""){
+        beams = filterForParaphrases(beams, vocabIDsent);
       }
 
       auto prunedBeams = pruneBeam(beams);
