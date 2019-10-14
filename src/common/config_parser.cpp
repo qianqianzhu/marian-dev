@@ -525,6 +525,8 @@ void ConfigParser::addOptionsTranslation(cli::CLIWrapper& cli) {
   cli.add<std::string>("--paraphrase-source",
      "Paraphrase given an already translated source.")
     ->implicit_val("");
+  cli.add<float>("--paraphrase-probability",
+     "Paraphrase if the probability is lower than.", -0.2f);
 
 
   addSuboptionsDevices(cli);

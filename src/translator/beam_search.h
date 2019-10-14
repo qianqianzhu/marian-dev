@@ -20,12 +20,14 @@ private:
   bool triePrune_ = false;
   bool paraphrase_ = false;
   std::vector<trieannosaurus::Node>* trie_;
+  Ptr<Vocab> trgVocab_;
 public:
   BeamSearch(Ptr<Options> options,
              const std::vector<Ptr<Scorer>>& scorers,
              Word trgEosId,
              Word trgUnkId = -1,
-             std::vector<trieannosaurus::Node>* trie=nullptr)
+             std::vector<trieannosaurus::Node>* trie=nullptr,
+             Ptr<Vocab> trgVocab=nullptr)
       : options_(options),
         scorers_(scorers),
         beamSize_(options_->has("beam-size")
@@ -33,7 +35,8 @@ public:
                       : 3),
         trgEosId_(trgEosId),
         trgUnkId_(trgUnkId),
-        trie_(trie) {
+        trie_(trie),
+        trgVocab_(trgVocab) {
           if (options_->get<std::string>("trie-pruning-path") != "") {
             triePrune_ = true;
           }
@@ -217,20 +220,23 @@ public:
     return newBeams;
   }
 
-  Beams filterForParaphrases(const Beams& beams, std::vector<int>& vocabIDs) {
+  Beams filterForParaphrases(const Beams& beams, std::vector<std::string>& vocabIDs,float prob) {
     Beams newBeams;
     ABORT_IF(beams.size() > 1, "Batched decoding not yet supported");
     for(auto beam : beams) {
       Beam newBeam;
       for (auto hyp : beam) {
         float score = hyp->GetLastWordScore();
-        size_t len = hyp->GetLength() - 1;
-        if (len >= vocabIDs.size()) {
-          newBeam.push_back(hyp);
-          continue;
+        bool found = false;
+        for (auto&& tok : vocabIDs) {
+          int vocabID = (*trgVocab_)[tok];
+          if (vocabID == hyp->GetWord()) {
+            found = true;
+            break;
+          }
         }
-        if (score < -0.4 && vocabIDs[len] == hyp->GetWord()) {
-          newBeam.push_back(New<Hypothesis>(New<Hypothesis>(trie_), 1, 0, -9999));
+        if ((score < prob) && found) {
+         newBeam.push_back(New<Hypothesis>(New<Hypothesis>(trie_), 1, 0, -9999));
         } else {
           newBeam.push_back(hyp);
         }
@@ -259,15 +265,15 @@ public:
     int dimBatch = (int)batch->size();
 
     //Get the vocabulary IDs from the decode text file
-    std::vector<int> vocabIDsent;
+    std::vector<std::string> vocabIDsent;
     if (paraphrase_) {
       static std::ifstream goldtrans(options_->get<std::string>("paraphrase-source"));
       std::string line;
       std::vector<std::string> num_tokens;
       std::getline(goldtrans, line);
       trieannosaurus::tokenizeSentence(line, num_tokens);
-      for (auto&& id : num_tokens) {
-        vocabIDsent.push_back(std::stoi(id));
+      for (auto&& tok : num_tokens) {
+        vocabIDsent.push_back(tok);
       }
     }
 
@@ -421,7 +427,7 @@ public:
       }
 
       if (options_->get<std::string>("paraphrase-source") != ""){
-        beams = filterForParaphrases(beams, vocabIDsent);
+        beams = filterForParaphrases(beams, vocabIDsent, options_->get<float>("paraphrase-probability"));
       }
 
       auto prunedBeams = pruneBeam(beams);
