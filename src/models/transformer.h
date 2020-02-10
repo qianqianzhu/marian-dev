@@ -377,10 +377,11 @@ public:
 
     ABORT_IF(depthFfn < 1, "Filter depth {} is smaller than 1", depthFfn);
 
+    bool freezeFFN = opt<int>("transformer-freeze-ffn");
     // the stack of FF layers
     for(int i = 1; i < depthFfn; ++i)
-      output = denseInline(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb);
-    output = denseInline(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel);
+      output = denseInline(output, prefix, /*suffix=*/std::to_string(i), dimFfn, actFn, ffnDropProb, freezeFFN);
+    output = denseInline(output, prefix, /*suffix=*/std::to_string(depthFfn), dimModel, 0, freezeFFN);
 
     auto opsPost = opt<std::string>("transformer-postprocess");
     output

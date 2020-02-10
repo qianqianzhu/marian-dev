@@ -242,6 +242,8 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
   cli.add<std::string>("--transformer-ffn-activation",
       "Activation between filters: swish or relu (transformer)",
       "swish");
+  cli.add<bool>("--transformer-freeze-ffn",
+     "Fix the parameters of the transfomer FFN");
   cli.add<int>("--transformer-dim-aan",
       "Size of position-wise feed-forward network in AAN (transformer)",
       2048);
