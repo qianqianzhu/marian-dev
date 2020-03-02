@@ -244,6 +244,8 @@ void ConfigParser::addOptionsModel(cli::CLIWrapper& cli) {
       "swish");
   cli.add<bool>("--transformer-freeze-ffn",
      "Fix the parameters of the transfomer FFN");
+  cli.add<bool>("--transformer-freeze-attn",
+     "Fix the parameters of the transfomer attention");
   cli.add<int>("--transformer-dim-aan",
       "Size of position-wise feed-forward network in AAN (transformer)",
       2048);
