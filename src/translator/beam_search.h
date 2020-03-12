@@ -169,8 +169,13 @@ public:
         in[index] += bumpVal;
       }
     }
-    if (in_->getBackend()->getDeviceId().type == DeviceType::gpu)
-      gBumpScores(idxs_, in, bumpVal);
+    if (in_->getBackend()->getDeviceId().type == DeviceType::gpu) {
+      #ifdef CUDA_FOUND
+        gBumpScores(idxs_, in, bumpVal);
+      #else
+        ABORT("Compiled without GPU support");
+      #endif
+    }
   }
 
   void bumpScoresBatch(Tensor in_, size_t batchID, size_t rowNum, std::vector<trieannosaurus::Node>* currTrieNode, float bumpVal) {
@@ -189,8 +194,13 @@ public:
         in[index] += bumpVal;
       }
     }
-    if (in_->getBackend()->getDeviceId().type == DeviceType::gpu)
-      gBumpScores(idxs_, in, bumpVal);
+    if (in_->getBackend()->getDeviceId().type == DeviceType::gpu){
+      #ifdef CUDA_FOUND
+        gBumpScores(idxs_, in, bumpVal);
+      #else
+        ABORT("Compiled without GPU support");
+      #endif
+    }
   }
 
   /* When reverse is false, we filter out beams that do not
