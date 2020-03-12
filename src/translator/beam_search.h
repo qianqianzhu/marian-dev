@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <unordered_set>
 
 #include "marian.h"
 #include "translator/history.h"
@@ -20,6 +21,9 @@ private:
 
   const float INVALID_PATH_SCORE = std::numeric_limits<float>::lowest(); // @TODO: observe this closely
   const bool PURGE_BATCH = true; // @TODO: diagnostic, to-be-removed once confirmed there are no issues.
+  std::string paraphrasePath_;
+  float paraphraseProb_;
+  bool paraphrase_ = false;
 
 public:
   BeamSearch(Ptr<Options> options,
@@ -28,7 +32,52 @@ public:
       : options_(options),
         scorers_(scorers),
         beamSize_(options_->get<size_t>("beam-size")),
-        trgVocab_(trgVocab) {}
+        trgVocab_(trgVocab),
+        paraphrasePath_(options_->get<std::string>("paraphrase-source")),
+        paraphraseProb_(options_->get<float>("paraphrase-probability"))
+         {
+          if (options_->get<std::string>("paraphrase-source") != "") {
+            paraphrase_ = true;
+          }
+        }
+
+  void tokenizeAndConvertToVocabIDs(std::string& str, std::unordered_set<Word>& output) {
+    static const std::string delimeter = " ";
+    auto first = std::begin(str);
+
+    while (first != str.end()) {
+      const auto second = std::find_first_of(first, std::end(str), std::begin(delimeter), std::end(delimeter));
+
+      if (first != second) {
+        output.insert((*trgVocab_)[str.substr(std::distance(std::begin(str), first), std::distance(first, second))]);
+      }
+
+      if (second == str.end())
+        break;
+
+      first = std::next(second);
+    }
+} 
+  
+  Beams filterForParaphrases(const Beams& beams, std::unordered_set<Word>& vocabIDs) {
+    Beams newBeams;
+    ABORT_IF(beams.size() > 1, "Batched decoding not yet supported");
+    for(auto beam : beams) {
+      Beam newBeam;
+      for (auto hyp : beam) {
+        float score = hyp->getLastWordScore();
+        if ((vocabIDs.find(hyp->getWord()) != vocabIDs.end()) && (score < paraphraseProb_)) {
+          auto hyp = Hypothesis::New();
+          auto unk = trgVocab_->getUnkId();
+          newBeam.push_back(Hypothesis::New(hyp, unk, 0, -9999.0f));
+        } else {
+          newBeam.push_back(hyp);
+        }
+      }
+      newBeams.push_back(newBeam);
+    }
+    return newBeams;
+  }
 
   // combine new expandedPathScores and previous beams into new set of beams
   Beams toHyps(const std::vector<unsigned int>& nBestKeys, // [currentDimBatch, beamSize] flattened -> ((batchIdx, beamHypIdx) flattened, word idx) flattened
@@ -272,6 +321,16 @@ public:
   //**********************************************************************
   // main decoding function
   Histories search(Ptr<ExpressionGraph> graph, Ptr<data::CorpusBatch> batch) {
+    //Get the vocabulary IDs from the decode text file
+    std::unordered_set<Word> vocabIDsent;
+    if (paraphrase_) {
+      static std::ifstream goldtrans(options_->get<std::string>("paraphrase-source"));
+      std::string line;
+      std::vector<std::string> num_tokens;
+      std::getline(goldtrans, line);
+      tokenizeAndConvertToVocabIDs(line, vocabIDsent);
+    }
+
     auto factoredVocab = trgVocab_->tryAs<FactoredVocab>();
 #if 0   // use '1' here to disable factored decoding, e.g. for comparisons
     factoredVocab.reset();
@@ -508,6 +567,9 @@ public:
                        factoredVocab, factorGroup,
                        emptyBatchEntries, // [origDimBatch] - empty source batch entries are marked with true
                        batchIdxMap); // used to create a reverse batch index map to recover original batch indices for this step
+        if (paraphrase_){
+          beams = filterForParaphrases(beams, vocabIDsent);
+        }
       } // END FOR factorGroup = 0 .. numFactorGroups-1
 
       prevBatchIdxMap = batchIdxMap; // save current batchIdx map to be used in next step; we are then going to look one step back

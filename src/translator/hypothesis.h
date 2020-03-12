@@ -44,6 +44,14 @@ public:
   const std::vector<float>& getScoreBreakdown() { return scoreBreakdown_; }
   void setScoreBreakdown(const std::vector<float>& scoreBreakdown) { scoreBreakdown_ = scoreBreakdown; }
 
+  float getLastWordScore() {
+    if (prevHyp_) {
+      return pathScore_ - prevHyp_->getPathScore();
+    } else {
+      return pathScore_;
+    }
+  }
+
   const std::vector<float>& getAlignment() { return alignment_; }
   void setAlignment(const std::vector<float>& align) { alignment_ = align; };
 
