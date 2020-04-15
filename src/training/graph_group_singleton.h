@@ -83,22 +83,23 @@ public:
 
   void save(bool final = false) override {
     auto saveGraph = graph_;
-    if(mvAvg_) {
-      // The model with averaged parameters will be saved into model.npz as
-      // it's a model which should be used for decoding
-      saveGraph = graphAvg_;
-      // Save the original parameters in model.npz.orig.npz
-      std::string name = options_->get<std::string>("model");
-      builder_->save(graph_, name + ".orig.npz");
-    }
+    // if(mvAvg_) {
+    //   // The model with averaged parameters will be saved into model.npz as
+    //   // it's a model which should be used for decoding
+    //   saveGraph = graphAvg_;
+    //   // Save the original parameters in model.npz.orig.npz
+    //   std::string name = options_->get<std::string>("model");
+    //   builder_->save(graph_, name + ".orig.npz");
+    // }
 
     if(final && scheduler_)
       scheduler_->validate({saveGraph}, true);
 
-    save(saveGraph, final);
+    //save(saveGraph, final);
   }
 
   void save(Ptr<ExpressionGraph> graph, bool final = false) {
+    return;
     std::string name = options_->get<std::string>("model");
 
     if(options_->get<bool>("overwrite")) {

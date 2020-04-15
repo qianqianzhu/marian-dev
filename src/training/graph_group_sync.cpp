@@ -429,6 +429,7 @@ void SyncGraphGroup::load() /*override*/ {
 }
 
 void SyncGraphGroup::save(bool final) /*override*/ {
+  return;
   // validate(); @TODO: get rid of this everywhere (SyncGraphGroup)
   barrier(); // (for better grouping of log messages)
   // do final validation
