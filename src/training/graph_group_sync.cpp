@@ -429,7 +429,6 @@ void SyncGraphGroup::load() /*override*/ {
 }
 
 void SyncGraphGroup::save(bool final) /*override*/ {
-  return;
   // validate(); @TODO: get rid of this everywhere (SyncGraphGroup)
   barrier(); // (for better grouping of log messages)
   // do final validation
@@ -442,7 +441,7 @@ void SyncGraphGroup::save(bool final) /*override*/ {
       scheduler_->validate(graphs_, true);
     swapParamsAvg();
   }
-
+  return;
   // @TODO: put all this in one place, in new branch this is already localized in one place and class, this is a quick hack which will be 
   // done better after the next merge. Not doing this in other graph_groups as this would only make the merge harder. 
   // Determine model suffix *.npz or *.bin, then use the same suffix for all following models saved.
