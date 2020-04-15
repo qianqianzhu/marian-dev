@@ -555,6 +555,7 @@ public:
   void save(std::vector<io::Item>& ioItems, Type saveElementType = Type::float32);
 
   void save(const std::string& name, const std::string& meta = "", Type saveElementType = Type::float32) {
+    return;
     std::vector<io::Item> ioItems;
     save(ioItems, saveElementType);
     if(!meta.empty())

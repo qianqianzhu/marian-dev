@@ -244,6 +244,7 @@ void ExpressionGraph::checkNaN(Tensor t, bool& isNaN, bool& isInf) {
 }
 
 void ExpressionGraph::save(std::vector<io::Item>& ioItems, Type saveElementType) {
+  return;
   // sorted by type in std::map
   for(auto kvParams : paramsByElementType_) {
     // sorted by name in std::map
