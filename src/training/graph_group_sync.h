@@ -1,5 +1,7 @@
 #pragma once
 
+#include "optimizers/compresser.h"
+
 #include "training/graph_group.h"
 #include "training/communicator.h"
 #include "training/exponential_smoothing.h"
@@ -12,6 +14,9 @@ class SyncGraphGroup : public GraphGroup, public ExponentialSmoothing {
 
   Ptr<ICommunicator> comm_; // [not null] communicator, e.g. NCCLCommunicator
   Ptr<IMPIWrapper> mpi_;    // [not null] all MPI-like communication goes through this (this is a dummy implementation if no MPI run)
+
+  // model compressor
+  std::vector<Ptr<Compresser>> compressers_;
 
   std::vector<DeviceId> devices_;                         // [deviceIndex]
   std::vector<Ptr<models::ICriterionFunction>> builders_; // [deviceIndex]
