@@ -10,6 +10,7 @@
 #include "tensors/gpu/prod.h"
 #include "tensors/gpu/backend.h"
 #include "tensors/gpu/cuda_helpers.h"
+#include "optimizers/compresser.h"
 // clang-format on
 
 namespace marian {
@@ -182,7 +183,11 @@ void Prod(marian::Tensor C,
           float beta,
           float scalar) {
   if(C->type() == Type::float32) {
+    // Damage the model
+    compressImpl(A, 8, 2, 0, 0);
+    compressImpl(B, 8, 2, 0, 0);
     ProdTyped<float>(C, A, B, transA, transB, beta, scalar);
+    compressImpl(C, 8, 2, 0, 0);
 #if COMPILE_FP16
   } else if(C->type() == Type::float16) {
     ProdTyped<half>(C, A, B, transA, transB, __float2half(beta), __float2half(scalar));
