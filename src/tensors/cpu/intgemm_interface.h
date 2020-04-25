@@ -3,6 +3,7 @@
 #include "graph/node.h"
 #include "graph/node_operators_unary.h"
 #include "integer_common.h"
+#include "3rd_party/intgemm/tile/multiply.h"
 
 namespace marian {
 
@@ -342,6 +343,8 @@ public:
   }
 
   NodeOps forwardOps() override {
+    typedef intgemm::Access<intgemm::RowMajorAccess<int8_t>, intgemm::ColMajorAccess<int8_t>, intgemm::UnquantizeAndAddBiasAndWriteRowMajorAccess<float>> atype;
+    auto& mult = intgemm::AVX512VNNI::Multiply<atype, intgemm::AVX512VNNI::Shifted8, 1, 16>;
     return {NodeOp(
           float aQuantMult = std::static_pointer_cast<PrepareANodeOp<vtype> >(child(0))->quantMult_;
           float bQuantMult;
@@ -365,12 +368,21 @@ public:
                                              cols(child(1)->val()),                                          /*child(2) is bias*/
                                              intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, child(2)->val()->data(), val_->data()));
           } else {
-            intgemm::Int8Shift::Multiply(reinterpret_cast<int8_t *>(child(0)->val()->data()), /*A*/
-                                  reinterpret_cast<int8_t *>(child(1)->val()->data()), /*B*/
-                                  rows(child(0)->val()),
-                                  cols(child(0)->val()),
-                                  cols(child(1)->val()),                                          /*child(2) is bias*/
-                                  intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, child(2)->val()->data(), val_->data()));
+            assert(cols(child(0)->val()) == cols(child(1)->val()));
+            intgemm::Index inner = cols(child(0)->val());
+            atype accessobj(intgemm::RowMajorAccess<int8_t>(reinterpret_cast<int8_t *>(child(0)->val()->data()), inner),
+                            intgemm::ColMajorAccess<int8_t>(reinterpret_cast<int8_t *>(child(1)->val()->data()), inner),
+                                                                                        /*C begin*/    /*Columns B trans*/
+                            intgemm::UnquantizeAndAddBiasAndWriteRowMajorAccess<float>(val_->data(), static_cast<intgemm::Index>(rows(child(1)->val())) , {unquant_mult, child(2)->val()->data(), val_->data()}));
+            mult(accessobj, {static_cast<intgemm::Index>(rows(child(0)->val())), static_cast<intgemm::Index>(cols(child(1)->val())), static_cast<intgemm::Index>(rows(child(1)->val()))});
+
+            
+            //intgemm::Int8Shift::Multiply(reinterpret_cast<int8_t *>(child(0)->val()->data()), /*A*/
+            //                      reinterpret_cast<int8_t *>(child(1)->val()->data()), /*B*/
+            //                      rows(child(0)->val()),
+            //                      cols(child(0)->val()),
+            //                      cols(child(1)->val()),                                          /*child(2) is bias*/
+            //                      intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, child(2)->val()->data(), val_->data()));*/
           }
     )};
   }
