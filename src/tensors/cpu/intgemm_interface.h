@@ -226,6 +226,8 @@ public:
   NodeOps forwardOps() override {
     //std::cerr << "TrueBias: " << child(0)->name() << " type: " << child(0)->type() << " bQuantMult: " << this->child(3)->val()->data()[0] <<  " aQuantMult: " << this->child(2)->val()->data()[0] << std::endl;
     //std::cerr << "Bias name and val: " << child(0)->name() << " " << child(0)->val()->data()[0] << std::endl;
+    typedef intgemm::Access<intgemm::AVX512VNNI::Constant1sAccess, intgemm::RowMajorAccess<int8_t>, intgemm::UnquantizeAndAddBiasAndWriteRowMajorAccess<float>> AccessT;
+    auto& mult = intgemm::AVX512VNNI::Multiply<AccessT, intgemm::AVX512VNNI::Signed8, 1, 16>;
     return {NodeOp(
       if (alreadyPrepared_) {
         //God Knows why trying to assign the bias tensor to this node causes a crash, the second time it's referenced
@@ -240,9 +242,16 @@ public:
         auto quant_mult_b = this->child(3)->val();
 
         float unquant_mult = (-1)*((127.0f / *quant_mult_a->data())*(127.0f / *quant_mult_b->data()))/(127.0f); //Minus one to invert add_ps later on
-        intgemm::Int8Shift::PrepareBias((const int8_t *)b->data(), rows(b), cols(b), intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, bias->data(), val_->data()));
+
+        auto access = AccessT(
+          intgemm::AVX512VNNI::Constant1sAccess(),
+          intgemm::RowMajorAccess<int8_t>(reinterpret_cast<int8_t*>(b->data()), cols(b)),
+          intgemm::UnquantizeAndAddBiasAndWriteRowMajorAccess<float>(val_->data(), cols(b), {unquant_mult, bias->data(), val_->data()})
+        );
+        mult(access, intgemm::Tile{1, static_cast<intgemm::Index>(rows(b)), static_cast<intgemm::Index>(cols(b))});
+        // intgemm::Int8Shift::PrepareBias((const int8_t *)b->data(), rows(b), cols(b), intgemm::callbacks::UnquantizeAndAddBiasAndWrite(unquant_mult, bias->data(), val_->data()));
       }
-      )};
+    )};
   }
 
   const std::string type() override { return "prepareBias"; }
