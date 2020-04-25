@@ -62,7 +62,7 @@ float clipValue_;
 float quantMult_;
 
   PrepareBNodeOp(Expr input, Expr quant_mult, float clipValue)
-      : NaryNodeOp({input, quant_mult}, input->shape(), intgemm_<vtype>::intgemmType), clipValue_(clipValue) {
+      : NaryNodeOp({transpose(input), quant_mult}, input->shape(), intgemm_<vtype>::intgemmType), clipValue_(clipValue) {
 
     set_name(input->name());
     // Check if arguments are not null
@@ -78,7 +78,7 @@ float quantMult_;
       if (isIntgemm(child(0)->value_type())) {
         val_ = child(0)->val();
       } else {
-        intgemm_<vtype>::width::PrepareB(child(0)->val()->data(), /*input*/
+        intgemm_<vtype>::width::PrepareA(child(0)->val()->data(), /*input*/
                                       val_->data<Integer>(), /*output*/
                                       *child(1)->val()->data(), /*Quant Mult*/
                                       rows(child(0)->val()),
