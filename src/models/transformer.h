@@ -226,7 +226,7 @@ public:
 
     // take softmax along src sequence axis (-1)
     auto weights = softmax(z); // [-4: beam depth * batch size, -3: num heads, -2: max tgt length, -1: max src length]
-    
+
     if(saveAttentionWeights)
       collectOneHead(weights, dimBeam);
 
@@ -255,6 +255,11 @@ public:
     auto bq = graph_->param(prefix + "_bq", {       1, dimModel}, inits::zeros(), freeze);
     auto qh = affine(q, Wq, bq);
     qh = SplitHeads(qh, dimHeads); // [-4: beam depth * batch size, -3: num heads, -2: max length, -1: split vector dim]
+
+    //ONLY FREEZE IF SELF
+    if (prefix.find("self") != std::string::npos) {
+        freeze = true;
+    }
 
     Expr kh;
     // Caching transformation of the encoder that should not be created again.
@@ -326,6 +331,10 @@ public:
 
     // multi-head self-attention over previous input
     bool frozenAttn = opt<bool>("transformer-freeze-attn");
+    if (prefix.find("self") != std::string::npos) {
+        frozenAttn = true;
+    }
+
     output = MultiHead(prefix, dimModel, heads, output, keys, values, mask, cache, saveAttentionWeights, frozenAttn);
     
     auto opsPost = opt<std::string>("transformer-postprocess");
