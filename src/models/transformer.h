@@ -251,8 +251,8 @@ public:
                  bool freeze = false) {
     int dimModel = q->shape()[-1];
     // @TODO: good opportunity to implement auto-batching here or do something manually?
-    auto Wq = graph_->param(prefix + "_Wq", {dimModel, dimModel}, inits::glorotUniform(), freeze);
-    auto bq = graph_->param(prefix + "_bq", {       1, dimModel}, inits::zeros(), freeze);
+    auto Wq = graph_->param(prefix + "_Wq", {dimModel, dimModel/8}, inits::glorotUniform(), freeze);
+    auto bq = graph_->param(prefix + "_bq", {       1, dimModel/8}, inits::zeros(), freeze);
     auto qh = affine(q, Wq, bq);
     qh = SplitHeads(qh, dimHeads); // [-4: beam depth * batch size, -3: num heads, -2: max length, -1: split vector dim]
 
@@ -266,8 +266,8 @@ public:
       kh = cache_[prefix + "_keys"];                                                   // then return cached tensor
     }
     else {
-      auto Wk = graph_->param(prefix + "_Wk", {dimModel, dimModel}, inits::glorotUniform(), freeze);
-      auto bk = graph_->param(prefix + "_bk", {1,        dimModel}, inits::zeros(), freeze);
+      auto Wk = graph_->param(prefix + "_Wk", {dimModel, dimModel/8}, inits::glorotUniform(), freeze);
+      auto bk = graph_->param(prefix + "_bk", {1,        dimModel/8}, inits::zeros(), freeze);
 
       kh = affine(keys, Wk, bk);     // [-4: beam depth, -3: batch size, -2: max length, -1: vector dim]
       kh = SplitHeads(kh, dimHeads); // [-4: batch size, -3: num heads, -2: max length, -1: split vector dim]
@@ -280,8 +280,8 @@ public:
         && cache_[prefix + "_values"]->shape().elements() == values->shape().elements()) {
       vh = cache_[prefix + "_values"];
     } else {
-      auto Wv = graph_->param(prefix + "_Wv", {dimModel, dimModel}, inits::glorotUniform(), freeze);
-      auto bv = graph_->param(prefix + "_bv", {1,        dimModel}, inits::zeros(), freeze);
+      auto Wv = graph_->param(prefix + "_Wv", {dimModel, dimModel/8}, inits::glorotUniform(), freeze);
+      auto bv = graph_->param(prefix + "_bv", {1,        dimModel/8}, inits::zeros(), freeze);
 
       vh = affine(values, Wv, bv); // [-4: batch size, -3: num heads, -2: max length, -1: split vector dim]
       vh = SplitHeads(vh, dimHeads);
