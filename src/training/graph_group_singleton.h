@@ -36,6 +36,7 @@ public:
     graph_->setDevice(deviceId);
     graph_->setCheckpointing(options_->get<bool>("gradient-checkpointing"));
     graph_->getBackend()->setClip(options_->get<float>("clip-gemm"));
+    graph_->getBackend()->setDNNL(options_->get<bool>("use-dnnl"));
     graph_->reserveWorkspaceMB(options_->get<size_t>("workspace"));
     opt_ = Optimizer(options_);
     builder_ = models::createCriterionFunctionFromOptions(options_, models::usage::training);

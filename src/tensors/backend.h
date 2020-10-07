@@ -15,6 +15,7 @@ protected:
   float clipValue_{0.f};
 
 public:
+  bool dnnl_;
   Backend(DeviceId deviceId, size_t seed)
       : deviceId_(deviceId), seed_(seed), randomGenerator_(createRandomGenerator(seed, deviceId)) {}
   virtual ~Backend() {};
@@ -32,6 +33,13 @@ public:
   // for GPU, this is invalid. for gpu, isOptimized() function always returns false.
   virtual void setOptimized(bool optimize) = 0;
   virtual bool isOptimized() = 0;
+
+  virtual void setDNNL(bool dnnl) {
+    dnnl_ = dnnl;
+  }
+  virtual bool useDNNL() {
+    return dnnl_;
+  }
 };
 
 Ptr<Backend> BackendByDeviceId(DeviceId deviceId, size_t seed);

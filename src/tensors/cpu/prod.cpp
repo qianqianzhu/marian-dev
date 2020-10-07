@@ -53,7 +53,8 @@ void Prod(marian::Tensor C,
         ldb,
         beta,
         C->data(),
-        ldc);
+        ldc,
+        A->getBackend()->useDNNL());
 #else
   C; A; B; transA; transB; beta; scalar;
   ABORT("You need to compile with MKL in order to use the CPU version");
@@ -169,7 +170,8 @@ void ProdBatched(marian::Tensor C,
           (int)ldb,
           beta,
           C->data() + i * strideC,
-          (int)ldc);
+          (int)ldc,
+          A->getBackend()->useDNNL());
   }
 #endif
 #else

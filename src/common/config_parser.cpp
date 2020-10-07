@@ -140,6 +140,8 @@ void ConfigParser::addOptionsGeneral(cli::CLIWrapper& cli) {
     "allow the use of environment variables in paths, of the form ${VAR_NAME}");
   cli.add<bool>("--relative-paths",
     "All paths are relative to the config file location");
+  cli.add<bool>("--use-dnnl",
+    "Use DNNL's sgemm as opposed to MKL/BLAS.");
   cli.add<std::string>("--dump-config",
     "Dump current (modified) configuration to stdout and exit. Possible values: full, minimal, expand")
     ->implicit_val("full");

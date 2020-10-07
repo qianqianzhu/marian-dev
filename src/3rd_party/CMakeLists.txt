@@ -8,6 +8,12 @@ add_subdirectory(./zlib)
 add_subdirectory(./faiss)
 include_directories(./faiss)
 
+if(COMPILE_CPU)
+  add_subdirectory(./oneDNN)
+  include_directories(./oneDNN/include)
+  set(DNNL_BUILD_TESTS OFF CACHE BOOL "Disable dnnl tests")
+endif(COMPILE_CPU)
+
 if(USE_FBGEMM)
   # @TODO: find out if this is somehow harmful. This is supppressing CMake warnings for CMAKE_SUPPRESS_DEVELOPER_WARNINGS
   # meant to silence CMakeFiles of 3rd_party tools.

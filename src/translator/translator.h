@@ -88,6 +88,7 @@ public:
         graph->setDefaultElementType(typeFromString(prec[0]));
         graph->setDevice(device);
         graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
+        graph->getBackend()->setDNNL(options_->get<bool>("use-dnnl"));
         if (device.type == DeviceType::cpu) {
           graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
         }
@@ -230,6 +231,7 @@ public:
       graph->setDefaultElementType(typeFromString(precison[0])); // only use first type, used for parameter type in graph
       graph->setDevice(device);
       graph->getBackend()->setClip(options_->get<float>("clip-gemm"));
+      graph->getBackend()->setDNNL(options_->get<bool>("use-dnnl"));
       if (device.type == DeviceType::cpu) {
         graph->getBackend()->setOptimized(options_->get<bool>("optimize"));
       }
