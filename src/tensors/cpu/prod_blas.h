@@ -8,6 +8,7 @@
 
 #if 1 //@TODO proper guards
 #include <dnnl.h>
+#include "tensors/cpu/bf16/bf16.h"
 #endif
 
 inline void sgemm_dnnl(bool transA,
@@ -54,7 +55,7 @@ inline void sgemm(bool transA,
                   int ldc,
                   bool useDNNL=false) {
 #if 1
-  sgemm_dnnl(transA,
+  /*sgemm_dnnl*/gemm_f32f32bf16f32(transA,
              transB,
              rows_a,
              rows_b,
