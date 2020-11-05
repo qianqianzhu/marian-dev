@@ -12,6 +12,9 @@ if(COMPILE_CPU)
   add_subdirectory(./oneDNN)
   include_directories(./oneDNN/include)
   set(DNNL_BUILD_TESTS OFF CACHE BOOL "Disable dnnl tests")
+
+  add_subdirectory(./oneCCL)
+  include_directories(./oneCCL/include)
 endif(COMPILE_CPU)
 
 if(USE_FBGEMM)

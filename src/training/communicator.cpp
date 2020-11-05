@@ -182,8 +182,10 @@ Ptr<IMPIWrapper> initMPI(bool multiThreaded) {
   if (!s_mpi) {
 #if MPI_FOUND
     s_mpi = New<MPIWrapper>(multiThreaded);
+    LOG(info, "[mpi] Initiated MPI on: ", utils::hostnameAndProcessId().first);
 #else
     s_mpi = New<FakeMPIWrapper>(multiThreaded);
+    LOG(info, "[mpi] Initiated FakeMPI on: ", utils::hostnameAndProcessId().first);
 #endif
     s_mpiIsMultiThreaded = multiThreaded;
   }

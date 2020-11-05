@@ -20,3 +20,6 @@
 [submodule "src/3rd_party/oneDNN"]
 	path = src/3rd_party/oneDNN
 	url = https://github.com/oneapi-src/oneDNN.git
+[submodule "src/3rd_party/oneCCL"]
+	path = src/3rd_party/oneCCL
+	url = https://github.com/oneapi-src/oneCCL.git
