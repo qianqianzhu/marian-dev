@@ -9,6 +9,7 @@
 
 #include "bfloat16.hpp"
 #include <dnnl.hpp>
+#include <chrono>
 
 
 namespace proxy {
@@ -176,21 +177,44 @@ dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t 
 
 
     // Init bf16 memory and convert to floats
+    //auto start_AM = std::chrono::steady_clock::now();
     memory A_m({{M, K}, bf16, a_strides}, eng);
-    float2bf16dnnlmemory(A, A_m, (size_t)M*(size_t)K);
+    //auto end_AM = std::chrono::steady_clock::now();
+    //auto start_CONVA = std::chrono::steady_clock::now();
+    dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(A_m.get_data_handle()), A, (size_t)M*(size_t)K);
+    //float2bf16dnnlmemory(A, A_m, (size_t)M*(size_t)K);
+    //auto end_CONVA = std::chrono::steady_clock::now();
+    //auto start_BM = std::chrono::steady_clock::now();
     memory B_m({{K, N}, bf16, b_strides}, eng);
-    float2bf16dnnlmemory(B, B_m, (size_t)K*(size_t)N);
+    //auto end_BM = std::chrono::steady_clock::now();
+    //auto start_CONVB = std::chrono::steady_clock::now();
+    //float2bf16dnnlmemory(B, B_m, (size_t)K*(size_t)N);
+    dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(B_m.get_data_handle()), B, (size_t)K*(size_t)N);
+    //auto end_CONVB = std::chrono::steady_clock::now();
     memory C_m({{M, N}, c_data_type, {ldc, 1}}, eng, (void *)C);
 
     // Prepare oneDNN memory for alpha
     memory alpha_m({{1}, memory::data_type::f32, {1}}, eng, &alpha);
 
+    //auto start_MULT = std::chrono::steady_clock::now();
     stream s(eng);
     matmul_p.execute(s,
             {{DNNL_ARG_SRC, A_m}, {DNNL_ARG_WEIGHTS, B_m}, {DNNL_ARG_DST, C_m},
                     {DNNL_ARG_ATTR_OUTPUT_SCALES, alpha_m}});
     s.wait();
+    //auto end_MULT = std::chrono::steady_clock::now();
 
+    //std::chrono::duration<double> A_Memory = end_AM-start_AM;
+    //std::chrono::duration<double> B_Memory = end_BM-start_BM;
+    //std::chrono::duration<double> A_convert = end_CONVA-start_CONVA;
+    //std::chrono::duration<double> B_convert = end_CONVB-start_CONVB;
+
+    //std::chrono::duration<double> mult_time = end_MULT-start_MULT;
+    //std::cerr << "Amem: " << A_Memory.count() << std::endl;
+    //std::cerr << "Bmem: " << B_Memory.count() << std::endl;
+    //std::cerr << "Aconv: " << A_convert.count() << std::endl;
+    //std::cerr << "Bconv: " << B_convert.count() << std::endl;
+    //std::cerr << "Multiply: " << mult_time.count() << std::endl;
     return status::success;
 }
 
