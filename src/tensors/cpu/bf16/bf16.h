@@ -14,7 +14,33 @@
 
 namespace proxy {
 
-// Read from a float vector, write to DNNL bfloat16
+// Proper conversion from fp32 to bf16. Zero copy
+inline void float2bf16(dnnl::engine& eng, int M, int K, const float *A, dnnl::memory& A_m) {
+    using namespace dnnl;
+    /*f32 to bf16 conversion*/
+    //Create memory description. The memory tag corresponds to source-target reordering
+    auto src_md_A = memory::desc({M, K}, memory::data_type::f32, memory::format_tag::ab);
+    auto trg_md_A = memory::desc({M, K}, memory::data_type::bf16, memory::format_tag::ab);
+
+    // Zero copy initialisation of the fp32 memory
+    auto src_mem_FP32 = memory(src_md_A, eng, (void *)A);
+
+    // Creating reodering engine. It doesn't actually do any reodering, just converts to bf16
+    auto reorder_pd = reorder::primitive_desc(eng, src_md_A, eng, trg_md_A);
+
+    //Set the arguments
+    std::unordered_map<int, memory> reorder_args;
+    reorder_args.insert({DNNL_ARG_SRC, src_mem_FP32});
+    reorder_args.insert({DNNL_ARG_DST, A_m});
+
+    //Perform the reordering
+    auto reorder_prim = reorder(reorder_pd);
+    stream reorder_stream(eng);
+    reorder_prim.execute(reorder_stream, reorder_args);
+    reorder_stream.wait();
+}
+
+// Read from a float vector, write to DNNL bfloat16. Slow version
 inline void float2bf16dnnlmemory(const float *handle, dnnl::memory &mem, size_t items) {
     uint16_t *dst = static_cast<uint16_t *>(mem.get_data_handle());
     for (size_t i = 0; i < items; ++i) {
@@ -179,9 +205,12 @@ dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t 
     // Init bf16 memory and convert to floats
     //auto start_AM = std::chrono::steady_clock::now();
     memory A_m({{M, K}, bf16, a_strides}, eng);
+
     //auto end_AM = std::chrono::steady_clock::now();
     //auto start_CONVA = std::chrono::steady_clock::now();
-    dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(A_m.get_data_handle()), A, (size_t)M*(size_t)K);
+    /*f32 to bf16 conversion*/
+    float2bf16(eng, M, K, A, A_m);
+    //dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(A_m.get_data_handle()), A, (size_t)M*(size_t)K);
     //float2bf16dnnlmemory(A, A_m, (size_t)M*(size_t)K);
     //auto end_CONVA = std::chrono::steady_clock::now();
     //auto start_BM = std::chrono::steady_clock::now();
@@ -189,7 +218,9 @@ dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t 
     //auto end_BM = std::chrono::steady_clock::now();
     //auto start_CONVB = std::chrono::steady_clock::now();
     //float2bf16dnnlmemory(B, B_m, (size_t)K*(size_t)N);
-    dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(B_m.get_data_handle()), B, (size_t)K*(size_t)N);
+    /*f32 to bf16 conversion*/
+    float2bf16(eng, K, N, B, B_m);
+    //dnnl::impl::cvt_float_to_bfloat16(static_cast<dnnl::impl::bfloat16_t *>(B_m.get_data_handle()), B, (size_t)K*(size_t)N);
     //auto end_CONVB = std::chrono::steady_clock::now();
     memory C_m({{M, N}, c_data_type, {ldc, 1}}, eng, (void *)C);
 
@@ -238,9 +269,11 @@ inline dnnl::status gemm_f32f32bf16f32(bool transa, bool transb, dnnl_dim_t M,
         dnnl_dim_t N, dnnl_dim_t K, float alpha, const float *A, dnnl_dim_t lda,
         const float *B, dnnl_dim_t ldb, float beta, float *C, dnnl_dim_t ldc) {
             if (beta == 0.f) {
+                //std::cerr << "C=A*B" << std::endl;
                 return proxy::gemm_f32f32bf16<float, true>(
             transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
             } else if (beta == 1.f) {
+                //std::cerr << "C+=A*B" << std::endl;
                 return proxy::gemm_f32f32bf16<float, false>(
             transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
             } else {
