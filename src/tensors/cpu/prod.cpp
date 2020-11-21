@@ -97,7 +97,7 @@ void ProdBatched(marian::Tensor C,
   auto strideC = n * m;
 
   auto batchC = std::max(batchA, batchB);
-#if MKL_FOUND
+#if 0 // We will run legacy batched gemm, since oneDNN doesn't support cblas_sgemm_batch
   CBLAS_TRANSPOSE transA_forarr = CblasNoTrans;
   CBLAS_TRANSPOSE transB_forarr = CblasNoTrans;
 

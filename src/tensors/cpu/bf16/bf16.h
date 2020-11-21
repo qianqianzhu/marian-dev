@@ -86,6 +86,7 @@ inline void printMem(dnnl::memory &mem, size_t items, bool isBF16=false) {
     }
 }
 
+// DO NOT USE. BROKEN DUE TO RUNTIME STRIDE INITIALISATION. FIX IF YOU WANT TO USE AS THE FP32 VERSION
 template <typename c_dt, bool beta_is_zero = true>
 dnnl::status gemm_bf16bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t N,
         dnnl_dim_t K, float alpha, const void *A, dnnl_dim_t lda,
@@ -153,8 +154,8 @@ dnnl::status gemm_bf16bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t N,
     return status::success;
 }
 
-template <typename c_dt, bool beta_is_zero>
-dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t N,
+template <typename c_dt, bool beta_is_zero, char transa, char transb>
+dnnl::status gemm_f32f32bf16(dnnl_dim_t M, dnnl_dim_t N,
         dnnl_dim_t K, float alpha, const float *A, dnnl_dim_t lda,
         const float *B, dnnl_dim_t ldb, float beta, c_dt *C, dnnl_dim_t ldc) {
     using namespace dnnl;
@@ -178,11 +179,15 @@ dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t 
     std::call_once(initialized, [=] {
         eng = engine(engine::kind::cpu, 0);
 
+        memory::dims a_dims_strides = transa == 'N' ? dims {DNNL_RUNTIME_DIM_VAL, 1} : dims {1, DNNL_RUNTIME_DIM_VAL};
+        memory::dims b_dims_strides = transb == 'N' ? dims {DNNL_RUNTIME_DIM_VAL, 1} : dims {1, DNNL_RUNTIME_DIM_VAL};
+        memory::dims c_dims_strides = {DNNL_RUNTIME_DIM_VAL, 1};
         memory::dims rt_rt_dims = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
         memory::dims rt_1_dims = {DNNL_RUNTIME_DIM_VAL, DNNL_RUNTIME_DIM_VAL};
 
-        memory::desc ab_md(rt_rt_dims, bf16, rt_rt_dims);
-        memory::desc c_md(rt_rt_dims, c_data_type, rt_1_dims);
+        memory::desc a_md(rt_rt_dims, bf16, a_dims_strides);
+        memory::desc b_md(rt_rt_dims, bf16, b_dims_strides);
+        memory::desc c_md(rt_rt_dims, c_data_type, c_dims_strides);
 
         primitive_attr attr;
         attr.set_output_scales(/* mask */ 0, {DNNL_RUNTIME_F32_VAL});
@@ -193,13 +198,13 @@ dnnl::status gemm_f32f32bf16(char transa, char transb, dnnl_dim_t M, dnnl_dim_t 
             attr.set_post_ops(po);
         }
 
-        matmul::desc matmul_d(ab_md, ab_md, c_md);
+        matmul::desc matmul_d(a_md, b_md, c_md);
         matmul::primitive_desc matmul_pd(matmul_d, attr, eng, true);
         if (matmul_pd) matmul_p = matmul(matmul_pd);
     });
 
-    dims a_strides = tolower(transa) == 'n' ? dims {lda, 1} : dims {1, lda};
-    dims b_strides = tolower(transb) == 'n' ? dims {ldb, 1} : dims {1, ldb};
+    dims a_strides = transa == 'N' ? dims {lda, 1} : dims {1, lda};
+    dims b_strides = transb == 'N' ? dims {ldb, 1} : dims {1, ldb};
 
 
     // Init bf16 memory and convert to floats
@@ -268,29 +273,69 @@ inline dnnl::status gemm_bf16bf16f32(char transa, char transb, dnnl_dim_t M,
 inline dnnl::status gemm_f32f32bf16f32(bool transa, bool transb, dnnl_dim_t M,
         dnnl_dim_t N, dnnl_dim_t K, float alpha, const float *A, dnnl_dim_t lda,
         const float *B, dnnl_dim_t ldb, float beta, float *C, dnnl_dim_t ldc) {
-            if (beta == 0.f) {
-                //std::cerr << "C=A*B" << std::endl;
-                return proxy::gemm_f32f32bf16<float, true>(
-            transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
-            } else if (beta == 1.f) {
-                //std::cerr << "C+=A*B" << std::endl;
-                return proxy::gemm_f32f32bf16<float, false>(
-            transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
-            } else {
-                assert(false); // We should not here
-            }
+    if (beta == 0.f) {
+        //std::cerr << "C=A*B" << std::endl;
+        if (transa && transb) {
+            return proxy::gemm_f32f32bf16<float, true, 'T', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (transa && !transb) {
+            return proxy::gemm_f32f32bf16<float, true, 'T', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && transb) {
+            return proxy::gemm_f32f32bf16<float, true, 'N', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && !transb) {
+            return proxy::gemm_f32f32bf16<float, true, 'N', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        }
+        //return proxy::gemm_f32f32bf16<float, true>(
+    //transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    } else if (beta == 1.f) {
+        //std::cerr << "C+=A*B" << std::endl;
+        if (transa && transb) {
+            return proxy::gemm_f32f32bf16<float, false, 'T', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (transa && !transb) {
+            return proxy::gemm_f32f32bf16<float, false, 'T', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && transb) {
+            return proxy::gemm_f32f32bf16<float, false, 'N', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && !transb) {
+            return proxy::gemm_f32f32bf16<float, false, 'N', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        }
+        //return proxy::gemm_f32f32bf16<float, false>(
+    //transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    } else {
+        assert(false); // We should not here
+        return dnnl::status::runtime_error;
+    }
+    return dnnl::status::runtime_error;
 }
 
 inline dnnl::status gemm_f32f32bf16bf16(bool transa, bool transb, dnnl_dim_t M,
         dnnl_dim_t N, dnnl_dim_t K, float alpha, const float *A, dnnl_dim_t lda,
         const float *B, dnnl_dim_t ldb, float beta, void *C, dnnl_dim_t ldc) {
-            if (beta == 0.f) {
-                return proxy::gemm_f32f32bf16<void, true>(
-                        transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
-            } else if (beta == 1.f) {
-                return proxy::gemm_f32f32bf16<void, false>(
-                        transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
-            } else {
-                assert(false);
-            }
+    if (beta == 0.f) {
+        if (transa && transb) {
+            return proxy::gemm_f32f32bf16<void, true, 'T', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (transa && !transb) {
+            return proxy::gemm_f32f32bf16<void, true, 'T', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && transb) {
+            return proxy::gemm_f32f32bf16<void, true, 'N', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && !transb) {
+            return proxy::gemm_f32f32bf16<void, true, 'N', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        }
+        //return proxy::gemm_f32f32bf16<void, true>(
+        //        transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    } else if (beta == 1.f) {
+        if (transa && transb) {
+            return proxy::gemm_f32f32bf16<void, false, 'T', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (transa && !transb) {
+            return proxy::gemm_f32f32bf16<void, false, 'T', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && transb) {
+            return proxy::gemm_f32f32bf16<void, false, 'N', 'T'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        } else if (!transa && !transb) {
+            return proxy::gemm_f32f32bf16<void, false, 'N', 'N'>(M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+        }
+        //return proxy::gemm_f32f32bf16<void, false>(
+        //        transa ? 'T' : 'N', transb ? 'T' : 'N', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);
+    } else {
+        assert(false);
+        return dnnl::status::runtime_error;
+    }
+    return dnnl::status::runtime_error;
 }
