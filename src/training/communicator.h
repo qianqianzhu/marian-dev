@@ -19,7 +19,7 @@
 #endif
 
 //CCL
-#include <ccl.hpp>
+#include <oneapi/ccl.hpp>
 // clang-format on
 
 namespace marian {
@@ -324,24 +324,40 @@ private:
   }
 
 public:
-  ccl::communicator_t comm_;
-  std::vector<ccl::stream_t> streams_;
+  ccl::communicator * comm_;
+  //std::vector<ccl::stream> streams_;
   Ptr<IMPIWrapper> mpi_; // Can not be null!
   OneCCLCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs),
-        streams_(graphs.size()),
+        //streams_(graphs.size()),
         mpi_(mpi) {
-      ABORT_IF(!mpi_, "We must have a valid MPI_ backend"); //We can't be null
-      comm_ = ccl::environment::instance().create_communicator();
-      //comm_->
+      ABORT_IF(!mpi_, "We must have a valid MPI backend"); //We can't be null
 
-      // Create one stream per communicator
-      for (int i=0; i< streams_.size(); i++) {
-        streams_[i] = ccl::environment::instance().create_stream(); // Hopefully it's a CPU stream
+      ccl::init();
+
+      int rank = mpi_->myMPIRank();
+      int size = mpi_->numMPIProcesses();
+      ccl::shared_ptr_class<ccl::kvs> kvs;
+      ccl::kvs::address_type kvs_addr;
+
+
+      if (rank == 0) {
+        kvs = ccl::create_main_kvs();
+        kvs_addr = kvs->get_address();
+        mpi_->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+      } else {
+        mpi_->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+        kvs = ccl::create_kvs(kvs_addr);
       }
+      *comm_ = ccl::create_communicator(size, rank, kvs);
+
+      // Create one stream per communicator. Apparently there's no default stream constructor in this version.
+      //for (int i=0; i< streams_.size(); i++) {
+      //  streams_[i] = ccl::create_stream(); // Hopefully it's a CPU stream
+      //}
   }
 
-  ~OneCCLCommunicator() override {}
+  ~OneCCLCommunicator() override {delete comm_;}
 
   /*Copied from default communicator. For whatever reason the NCCL communicator has a completely different implementation*/
   void foreach(const ForeachFunc& func, bool parallel = true) const override {
@@ -388,8 +404,9 @@ public:
       }
     };*/
     // We are all here;
-    comm_->barrier();
     for(int i = 0; i < graphs_.size(); ++i) {
+      ccl::stream stream = ccl::create_stream();
+      ccl::barrier(*comm_, stream);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -400,18 +417,18 @@ public:
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
       sendbuf, recvbuf, bufsize;
       ABORT("Reduce_SCatter is not implemented yet");
-      /*STUUUB
+      /*STUUUB  */
       ccl::reduce_scatter(sendbuf,
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
-                          comm_,
-                          streams_[i]); //This could also be ommited
-                          */
+                          *comm_,
+                          stream).wait(); //This could also be ommited
+                         
 
       //NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloat, ncclSum, comms_[i], streams_[i]));
+      ccl::barrier(*comm_, stream);
     }
-    comm_->barrier();
 
     // reset gradients outside current shard
     auto reset = [this](size_t idx, size_t begin, size_t end) {
@@ -446,8 +463,9 @@ public:
     };
     */
 
-    comm_->barrier();
     for(int i = 0; i < graphs_.size(); ++i) {
+      ccl::stream stream = ccl::create_stream();
+      ccl::barrier(*comm_, stream);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -458,17 +476,17 @@ public:
 
       std::vector<size_t> counts(numRanks(), bufsize);
 
-      comm_->allgatherv((const void *)sendbuf,
+      ccl::allgatherv((const void *)sendbuf,
                       bufsize,
                       (void *)recvbuf,
-                      counts.data(),
-                      ccl::datatype::dt_float,
-                      nullptr,// Stream not supported?
-                      streams_[i]);
+                      counts,
+                      ccl::datatype::float32,
+                      *comm_,
+                      stream).wait();
 
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
+      ccl::barrier(*comm_, stream);
     }
-    comm_->barrier();
 
     //foreach(gather);
   }

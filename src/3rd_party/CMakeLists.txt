@@ -9,10 +9,11 @@ add_subdirectory(./faiss)
 include_directories(./faiss)
 
 if(COMPILE_CPU)
+  set(DNNL_BUILD_TESTS OFF CACHE BOOL "Disable dnnl tests")
   add_subdirectory(./oneDNN)
   include_directories(./oneDNN/include)
-  set(DNNL_BUILD_TESTS OFF CACHE BOOL "Disable dnnl tests")
-
+  
+  set(BUILD_UT OFF CACHE BOOL "Disable oneCCL unit tests")
   add_subdirectory(./oneCCL)
   include_directories(./oneCCL/include)
 endif(COMPILE_CPU)
