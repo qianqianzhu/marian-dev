@@ -18,13 +18,21 @@ Ptr<ICommunicator> createCommunicator(
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
   if(noNccl) {
     LOG(warn, "[comm] NCCL communicator overridden");
-    return New<DefaultCommunicator>(graphs, mpi);
+    if (mpi && mpi->numMPIProcesses() > 1) {
+      return New<OneCCLCommunicator>(graphs, mpi);
+    } else {
+      return New<DefaultCommunicator>(graphs, mpi);
+    }
   }
 
   // if at least one of the devices is not a gpu, fall-back to default
   for(auto& graph : graphs) {
     if(graph->getBackend()->getDeviceId().type == DeviceType::cpu) {
-      return New<DefaultCommunicator>(graphs, mpi);
+      if (mpi && mpi->numMPIProcesses() > 1) {
+        return New<OneCCLCommunicator>(graphs, mpi);
+      } else {
+        return New<DefaultCommunicator>(graphs, mpi);
+      }
     }
   }
 
@@ -41,7 +49,11 @@ Ptr<ICommunicator> createCommunicator(
   return New<NCCLCommunicator>(graphs, mpi);
 #else // no CUDA or no NCCL
   noNccl; // (unused)
-  return New<DefaultCommunicator>(graphs, mpi);
+  if (mpi && mpi->numMPIProcesses() > 1) {
+    return New<OneCCLCommunicator>(graphs, mpi);
+  } else {
+    return New<DefaultCommunicator>(graphs, mpi);
+  }
 #endif
 }
 

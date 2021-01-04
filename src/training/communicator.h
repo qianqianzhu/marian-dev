@@ -129,7 +129,7 @@ private:
 public:
   DefaultCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs) {
-    //ABORT_IF(mpi && mpi->numMPIProcesses() != 1, "DefaultCommunicator does not support multi-process MPI");
+    ABORT_IF(mpi && mpi->numMPIProcesses() != 1, "DefaultCommunicator does not support multi-process MPI");
   }
 
   ~DefaultCommunicator() override {}
@@ -423,10 +423,8 @@ public:
                           bufsize,
                           ccl::reduction::sum,
                           *comm_,
-                          stream).wait(); //This could also be ommited
+                          stream).wait();
                          
-
-      //NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloat, ncclSum, comms_[i], streams_[i]));
       ccl::barrier(*comm_, stream);
     }
 
@@ -490,7 +488,7 @@ public:
 
     //foreach(gather);
   }
-
+ /* Use NCCL's version
   void swapParams(const std::vector<Tensor>& paramShards) const override {
     // Update all graphs with parameter shard
     auto gather = [this, paramShards](size_t idx, size_t begin, size_t end) {
@@ -507,8 +505,69 @@ public:
     };
     // Execute for each shard
     foreach(gather);
+  }*/
+
+
+    // swap distributed paramShards with model params()
+  // It is assumed that all model params() on all devices and MPI processes are identical.
+  // This is used for the smoothed parameters.
+  void swapParams(const std::vector<Tensor>& distributedParamShards) const override {
+    // get everything onto the CPU
+    auto distributedParams = gatherState([&](size_t localDeviceIndex) {
+      std::vector<float> tmp;
+      distributedParamShards[localDeviceIndex]->get(tmp);
+      return tmp;
+    });
+    // Now all MPI processes hold an identical copy of a concatenation of all distributedParamShards[] across local and remote devices.
+    std::vector<float> localParams;
+    graphs_[0]->params()->vals()->get(localParams);
+    // Now all MPI processes hold an identical copy of params() (remember, we assumed all devices hold the same params()).
+    ABORT_IF(distributedParams.size() != localParams.size(), "distributed sharded and local params have different size??");
+
+    // swap
+    std::swap(distributedParams, localParams);
+
+    // distribute it back
+    scatterState(distributedParams, [&](size_t localDeviceIndex,
+                                        std::vector<float>::const_iterator begin,
+                                        std::vector<float>::const_iterator end){
+      ABORT_IF(distributedParamShards[localDeviceIndex]->size() != end-begin, "swapParams size mismatch??"); // @TODO: move check to set()
+      distributedParamShards[localDeviceIndex]->set(std::vector<float>(begin, end)); // @TODO: directly pass iterators to set()
+    });
+    for (auto& graph : graphs_) // broadcast to every local graph
+      graph->params()->vals()->set(localParams);
   }
 
+  // Collect shards across multiple devices and MPI processes in the NCCL configuration into a single CPU-side vector.
+  // This is used when persisting optimizer state, which is sharded, and as part of swapParams().
+  std::vector<float> gatherState(const OptimizerBase::GatherStateGetFunc& getFn) const override {
+    std::vector<float> tmp; // (temp buffer used multiple times)
+    // first, concatenate over all local devices
+    std::vector<float> localData;
+    for(size_t localDeviceIndex = 0; localDeviceIndex < graphs_.size(); localDeviceIndex++) {
+      tmp = getFn(localDeviceIndex);
+      localData.insert(localData.end(), tmp.begin(), tmp.end());
+    }
+    // second, concatenate across MPI processes
+    // Note that all local devices occupy consecutive ncclRanks in order.
+    std::vector<float> data;
+    if (mpi_) {
+      // push one rank's data at a time using broadcast
+      for(size_t mpiRank = 0; mpiRank < mpi_->numMPIProcesses(); mpiRank++) {
+        // broadcast mpiRank's localData to all
+        if(mpiRank == mpi_->myMPIRank())
+          tmp = localData;
+        mpi_->bCast(tmp, /*rootRank=*/mpiRank);
+        // now all ranks have the same slice: concatenate (we will end up with the same on all MPI processes)
+        data.insert(data.end(), tmp.begin(), tmp.end());
+      }
+    }
+    else { // no MPI: localData is the complete result already
+      data = std::move(localData);
+    }
+    return data;
+  }
+/* Use NCCL's version instead
   void scatterState(const std::vector<float>& data, const OptimizerBase::ScatterStateSetFunc& setFn) const override {
     size_t dataSize = data.size();
     size_t numLocalDevices = graphs_.size();
@@ -518,17 +577,25 @@ public:
       size_t end   = std::min(begin + shardSize, dataSize);
       setFn(localDeviceIndex, data.begin() + begin, data.begin() + end);
     }
+  } */
+
+
+  // Distribute a single CPU-side vector to shards across multiple devices and MPI processes.
+  // This is used when restoring optimizer state, which is sharded, and as part of swapParams().
+  // It is assumed that all MPI processes get the same data() passed. Hence, no MPI transfers are needed here.
+  void scatterState(const std::vector<float>& data, const OptimizerBase::ScatterStateSetFunc& setFn) const override {
+    size_t dataSize = data.size();
+    size_t numShards = numRanks();
+    size_t shardSize = (dataSize + numShards - 1) / numShards;
+    for(size_t localDeviceIndex = 0; localDeviceIndex < graphs_.size(); localDeviceIndex++) {
+      // We only slice out data that is kept in our MPI process. Remember that all MPI processes receive the same, complete data.
+      auto rank = myRank(localDeviceIndex);
+      size_t begin = rank * shardSize;
+      size_t end   = std::min(begin + shardSize, dataSize);
+      setFn(localDeviceIndex, data.begin() + begin, data.begin() + end);
+    }
   }
 
-  std::vector<float> gatherState(const OptimizerBase::GatherStateGetFunc& getFn) const override {
-    std::vector<float> data; // we know the size here
-    for (size_t localDeviceIndex = 0; localDeviceIndex < graphs_.size(); localDeviceIndex++) {
-      std::vector<float> tmp = getFn(localDeviceIndex);
-      data.insert(data.end(), tmp.begin(), tmp.end());
-    }
-    ABORT_IF(data.size() != graphs_[0]->params()->vals()->size(), "gathering wrong amount of data??");
-    return data;
-  }
 };
 
 Ptr<ICommunicator> createCommunicator(
