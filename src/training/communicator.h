@@ -323,41 +323,44 @@ private:
     return RankShardRange(myRank(localDeviceIndex));
   }
 
+  ccl::communicator commFactory(Ptr<IMPIWrapper> mpi) {
+    ccl::init();
+
+    int rank = mpi->myMPIRank();
+    int size = mpi->numMPIProcesses();
+    ccl::shared_ptr_class<ccl::kvs> kvs;
+    ccl::kvs::address_type kvs_addr;
+
+
+    if (rank == 0) {
+      kvs = ccl::create_main_kvs();
+      kvs_addr = kvs->get_address();
+      mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+    } else {
+      mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+      kvs = ccl::create_kvs(kvs_addr);
+    }
+    std::cerr << "Creating comm" << std::endl;
+    return  ccl::create_communicator(size, rank, kvs);
+  }
+
 public:
-  ccl::communicator * comm_;
+  ccl::communicator comm_;
   //std::vector<ccl::stream> streams_;
   Ptr<IMPIWrapper> mpi_; // Can not be null!
   OneCCLCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs),
+        comm_(commFactory(mpi)),
         //streams_(graphs.size()),
         mpi_(mpi) {
       ABORT_IF(!mpi_, "We must have a valid MPI backend"); //We can't be null
-
-      ccl::init();
-
-      int rank = mpi_->myMPIRank();
-      int size = mpi_->numMPIProcesses();
-      ccl::shared_ptr_class<ccl::kvs> kvs;
-      ccl::kvs::address_type kvs_addr;
-
-
-      if (rank == 0) {
-        kvs = ccl::create_main_kvs();
-        kvs_addr = kvs->get_address();
-        mpi_->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
-      } else {
-        mpi_->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
-        kvs = ccl::create_kvs(kvs_addr);
-      }
-      *comm_ = ccl::create_communicator(size, rank, kvs);
-
       // Create one stream per communicator. Apparently there's no default stream constructor in this version.
       //for (int i=0; i< streams_.size(); i++) {
       //  streams_[i] = ccl::create_stream(); // Hopefully it's a CPU stream
       //}
   }
 
-  ~OneCCLCommunicator() override {delete comm_;}
+  ~OneCCLCommunicator() override {/*delete comm_;*/}
 
   /*Copied from default communicator. For whatever reason the NCCL communicator has a completely different implementation*/
   void foreach(const ForeachFunc& func, bool parallel = true) const override {
@@ -406,7 +409,7 @@ public:
     // We are all here;
     for(int i = 0; i < graphs_.size(); ++i) {
       ccl::stream stream = ccl::create_stream();
-      ccl::barrier(*comm_, stream);
+      ccl::barrier(comm_, stream);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -422,10 +425,10 @@ public:
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
-                          *comm_,
+                          comm_,
                           stream).wait();
                          
-      ccl::barrier(*comm_, stream);
+      ccl::barrier(comm_, stream);
     }
 
     // reset gradients outside current shard
@@ -463,7 +466,7 @@ public:
 
     for(int i = 0; i < graphs_.size(); ++i) {
       ccl::stream stream = ccl::create_stream();
-      ccl::barrier(*comm_, stream);
+      ccl::barrier(comm_, stream);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -479,11 +482,11 @@ public:
                       (void *)recvbuf,
                       counts,
                       ccl::datatype::float32,
-                      *comm_,
+                      comm_,
                       stream).wait();
 
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
-      ccl::barrier(*comm_, stream);
+      ccl::barrier(comm_, stream);
     }
 
     //foreach(gather);
