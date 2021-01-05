@@ -364,7 +364,9 @@ public:
 
   /*Copied from default communicator. For whatever reason the NCCL communicator has a completely different implementation*/
   void foreach(const ForeachFunc& func, bool parallel = true) const override {
+    std::cerr << "Entered foreach" << std::endl;
     parallel &= graphs_.size() > 1;
+    parallel = false; //@TODO for some reason this just doesn't work for now
 
     size_t totalSize = graphs_[0]->params()->vals()->size();
     size_t shardSize = (size_t)ceil(totalSize / (float)graphs_.size());
@@ -385,6 +387,8 @@ public:
     }
     for(auto& t : group) // (note: group is empty is not parallel)
       t.join();
+
+    std::cerr << "Exitted foreach" << std::endl;
   }
 
   void scatterReduceAndResetGrads() const override {
@@ -406,6 +410,7 @@ public:
         }
       }
     };*/
+    std::cerr << "ScatterReduceAndReset" << std::endl;
     // We are all here;
     for(int i = 0; i < graphs_.size(); ++i) {
       ccl::stream stream = ccl::create_stream();
@@ -463,7 +468,7 @@ public:
       }
     };
     */
-
+    std::cerr << "AllGatherParams" << std::endl;
     for(int i = 0; i < graphs_.size(); ++i) {
       ccl::stream stream = ccl::create_stream();
       ccl::barrier(comm_, stream);
@@ -516,6 +521,7 @@ public:
   // This is used for the smoothed parameters.
   void swapParams(const std::vector<Tensor>& distributedParamShards) const override {
     // get everything onto the CPU
+    std::cerr << "SwapParams" << std::endl;
     auto distributedParams = gatherState([&](size_t localDeviceIndex) {
       std::vector<float> tmp;
       distributedParamShards[localDeviceIndex]->get(tmp);
@@ -544,6 +550,7 @@ public:
   // Collect shards across multiple devices and MPI processes in the NCCL configuration into a single CPU-side vector.
   // This is used when persisting optimizer state, which is sharded, and as part of swapParams().
   std::vector<float> gatherState(const OptimizerBase::GatherStateGetFunc& getFn) const override {
+    std::cerr << "GatherState" << std::endl;
     std::vector<float> tmp; // (temp buffer used multiple times)
     // first, concatenate over all local devices
     std::vector<float> localData;
@@ -587,6 +594,7 @@ public:
   // This is used when restoring optimizer state, which is sharded, and as part of swapParams().
   // It is assumed that all MPI processes get the same data() passed. Hence, no MPI transfers are needed here.
   void scatterState(const std::vector<float>& data, const OptimizerBase::ScatterStateSetFunc& setFn) const override {
+    std::cerr << "ScatterState" << std::endl;
     size_t dataSize = data.size();
     size_t numShards = numRanks();
     size_t shardSize = (dataSize + numShards - 1) / numShards;
