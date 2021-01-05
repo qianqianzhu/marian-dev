@@ -423,8 +423,8 @@ public:
       auto*       recvbuf = grads->subtensor(begin, end-begin)->data();
       size_t      bufsize = shardSize();
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
-      sendbuf, recvbuf, bufsize;
-      ABORT("Reduce_SCatter is not implemented yet");
+      //sendbuf, recvbuf, bufsize;
+      //ABORT("Reduce_SCatter is not implemented yet");
       /*STUUUB  */
       ccl::reduce_scatter(sendbuf,
                           recvbuf,
