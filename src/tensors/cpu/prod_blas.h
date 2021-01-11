@@ -55,7 +55,7 @@ inline void sgemm(bool transA,
                   int ldc,
                   bool useDNNL=false) {
 #if 1
-  /*sgemm_dnnl*/gemm_f32f32bf16f32(transA,
+  sgemm_dnnl(transA, /*Get rid of bf16_GEMM for now: gemm_f32f32bf16f32*/
              transB,
              rows_a,
              rows_b,
