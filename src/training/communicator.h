@@ -554,7 +554,7 @@ public:
     std::vector<float> localParams;
     graphs_[0]->params()->vals()->get(localParams);
     // Now all MPI processes hold an identical copy of params() (remember, we assumed all devices hold the same params()).
-    LOG(info, "SwapParams distrubuted size {} local size.", distributedParams.size(), localParams.size());
+    LOG(info, "SwapParams distrubuted size {} local size {}.", distributedParams.size(), localParams.size());
     ABORT_IF(distributedParams.size() != localParams.size(), "distributed sharded and local params have different size??");
 
     // swap
