@@ -45,18 +45,27 @@ void SyncGraphGroup::setScheduler(Ptr<Scheduler> scheduler) /*override*/ {
 void SyncGraphGroup::initialize(const Ptr<data::Batch>& exampleBatch) {
   // Initialize graphs with random weights in one forward step
   // Also allocate and clear the gradients
+  LOG(info, "Init foreach.");
   comm_->foreach([&](size_t i, size_t /*begin*/, size_t /*end*/) {
+    LOG(info, "Init For each loop {}.", i);
     builders_[i]->build(graphs_[i], exampleBatch);
+    LOG(info, "Init For each loop Build {}.", i);
     graphs_[i]->forward();
+    LOG(info, "Init For each loop fwd {}.", i);
     graphs_[i]->params()->allocateBackward();
+    LOG(info, "Init For each loop backallocate {}.", i);
     graphs_[i]->params()->set_zero_adjoint();
+    LOG(info, "Init For each loop Set gradients to zero {}.", i);
   });
 
   // Copy weights from 0-th graph to all other graphs
   // to have equal weights across devices
   comm_->foreach([&](size_t i, size_t /*begin*/, size_t /*end*/) {
-    if (i > 0)
+    if (i > 0) {
+      LOG(info, "For each init second loop {}.", i);
       graphs_[i]->params()->vals()->copyFrom(graphs_[0]->params()->vals());
+      LOG(info, "For each init second loop {} copy from finished.", i);
+    }
   });
 }
 
@@ -103,7 +112,9 @@ void SyncGraphGroup::initializeAvg() {
 
   paramsAllocs_.resize(graphs_.size()); // allocators
   paramsAvg_.resize(graphs_.size());    // averaged parameters (shards; distributed over MPI processes if applicable)
+  LOG(info, "For each init avg.");
   comm_->foreach(init, /*parallel=*/false); // @TODO: is sequential operation necessary here? (is the allocation stuff sufficiently reentrant or thread-separated?)
+  LOG(info, "For each init avg done.");
 }
 
 Ptr<data::BatchStats> SyncGraphGroup::collectStats(const std::vector<Ptr<Vocab>>& vocabs) {
@@ -310,6 +321,7 @@ void SyncGraphGroup::update(std::vector<Ptr<data::Batch>> subBatches, size_t num
   // Compute gradients
   std::vector<StaticLoss> localDeviceLosses(devices_.size()); // [local device index] aggregate cost for each local device
   comm_->foreach([&](size_t localDeviceIndex, size_t /*begin*/, size_t /*end*/) { // parallel across devices. Aggregate for warp > 1.
+    LOG(info, "For each gradient compute, local device {}.", localDeviceIndex);
     auto graph = graphs_[localDeviceIndex];
     // reset gradient  --presently done outside
     //graph->params()->allocateBackward();
@@ -320,12 +332,13 @@ void SyncGraphGroup::update(std::vector<Ptr<data::Batch>> subBatches, size_t num
       auto subBatch = getSubBatch(warp, localDeviceIndex, mpi_->myMPIRank());
       if (!subBatch)
         break;
-
+      LOG(info, "For each gradient compute, local device {}, warp {}.", localDeviceIndex, warp);
       auto rationalLoss = builders_[localDeviceIndex]->build(graph, subBatch);
       graph->forward();
-
+      LOG(info, "For each gradient compute, local device {}, warp {} fwd done.", localDeviceIndex, warp);
       localDeviceLosses[localDeviceIndex] += *rationalLoss;
       graph->backward(/*zero=*/false); // (gradients are reset before we get here)
+      LOG(info, "For each gradient compute, local device {}, warp {} bt done.", localDeviceIndex, warp);
     }
   });
   // At this point, each device on each MPI process has a gradient aggregated over a subset of the sub-batches.
@@ -355,7 +368,9 @@ void SyncGraphGroup::update(std::vector<Ptr<data::Batch>> subBatches, size_t num
   // model update
   if (std::isfinite(localLoss.loss) || mpi_->numMPIProcesses() > 1) { // guard against NaN (except with MPI, as this simple way could hang it)
     comm_->scatterReduceAndResetGrads(); // reduce gradients across all devices and MPI nodes into shards
+    LOG(info, "GradForEach start.");
     comm_->foreach(update);              // per-shard model-update
+    LOG(info, "GradForEach end.");
     comm_->allGatherParams();            // distribute param value shards back
   }
   else
