@@ -1,4 +1,5 @@
 #include "training/communicator.h"
+#include "training/communicator_oneccl.h"
 #include "common/utils.h"
 
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
