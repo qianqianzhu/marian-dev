@@ -5,6 +5,7 @@
 #include "functional/functional.h"
 #include "tensors/tensor_operators.h"
 #include "optimizers/optimizers.h"
+#include "3rd_party/threadpool.h"
 #if MPI_FOUND
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -100,7 +101,7 @@ private:
   std::vector<Ptr<TensorAllocator>> paramsAllocs_;
   std::vector<Tensor> tmpTensors_;
 
-  void lazyInit() {
+  void lazyInit() { // Is this only necessary in the CPU version?
     if(tmpTensors_.size() == 0) {
       int totalSize = (int)graphs_[0]->params()->vals()->size();
       int shardSize = (int)ceil(totalSize / (float)graphs_.size());
@@ -258,6 +259,9 @@ private:
   std::vector<Ptr<TensorAllocator>> paramsAllocs_;
   std::vector<Tensor> tmpTensors_;
 
+  mutable ThreadPool threadPool_;
+  mutable std::vector<std::future<void>> threadResults_; // [device index]
+
   /*Copied from DefaultCommunicator*/
   void lazyInit() {
     if(tmpTensors_.size() == 0) {
@@ -357,8 +361,9 @@ public:
   Ptr<IMPIWrapper> mpi_; // Can not be null!
   OneCCLCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs),
-        comm_(commFactory(mpi)),
         //streams_(graphs.size()),
+        threadPool_(graphs.size(), graphs.size()), threadResults_(graphs.size()),
+        comm_(commFactory(mpi)),
         mpi_(mpi) {
       ABORT_IF(!mpi_, "We must have a valid MPI backend"); //We can't be null
       // Create one stream per communicator. Apparently there's no default stream constructor in this version.
@@ -369,39 +374,21 @@ public:
 
   ~OneCCLCommunicator() override {/*delete comm_;*/}
 
-  /*Copied from default communicator. For whatever reason the NCCL communicator has a completely different implementation*/
-  void foreach(const ForeachFunc& func, bool parallel = true) const override {
+  /*Copied from NCCL communicator*/
+    void foreach(const ForeachFunc& func, bool parallel = true) const override {
     parallel &= graphs_.size() > 1;
-    LOG(info, "Entering foreach. Parallel: {}", parallel);
 
-    size_t totalSize = graphs_[0]->params()->vals()->size();
-    size_t shardSize = (size_t)ceil(totalSize / (float)graphs_.size());
-
-    size_t pos = 0;
-    std::vector<std::thread> group;
-    // iterate over all shards
-    for(size_t idx = 0; idx < graphs_.size(); ++idx) {
-      size_t size = std::min(shardSize, totalSize);
-
+    for(size_t i = 0; i < graphs_.size(); ++i) {
+      size_t begin, end; std::tie
+      (begin, end) = localShardRange(i);
       if (parallel)
-        group.emplace_back(func, idx, pos, pos+size);
-      else {
-        LOG(info, "Sequential fn execution");
-        func(idx, pos, pos+size);
-        LOG(info, "Sequential fn execution done");
-      }
-
-      pos += size;
-      totalSize -= size;
+        threadResults_[i] = threadPool_.enqueue(func, i, begin, end);
+      else
+        func(i, begin, end);
     }
-    int i = 0;
-    for(auto& t : group) {// (note: group is empty is not parallel)
-      LOG(info, "Waiting on thread {} to join.", i);
-      t.join();
-      LOG(info, "Thread {} to joined.", i);
-      i++;
-    }
-
+    if (parallel)
+      for(size_t i = 0; i < graphs_.size(); ++i)
+        threadResults_[i].wait();
   }
 
   void scatterReduceAndResetGrads() const override {
