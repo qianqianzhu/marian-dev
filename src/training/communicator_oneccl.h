@@ -21,7 +21,7 @@ private:
 
       int pos = 0;
       for(auto graph : graphs_) {
-        LOG(info, "Lazy init for pos {}.", pos);
+        // LOG(info, "Lazy init for pos {}.", pos);
         int __size__ = std::min(shardSize, totalSize);
 
         auto paramsAlloc = New<TensorAllocator>(graph->getBackend());
@@ -37,7 +37,7 @@ private:
         // move to next shard
         pos += __size__;
         totalSize -= __size__;
-        LOG(info, "Lazy init for pos {} complete.", pos);
+        // LOG(info, "Lazy init for pos {} complete.", pos);
       }
     }
   }
@@ -81,10 +81,10 @@ private:
   }
 
   ccl::communicator commFactory(Ptr<IMPIWrapper> mpi) {
-    LOG(info, "Communicator factory.");
+    // LOG(info, "Communicator factory.");
     ccl::init();
 
-    LOG(info, "CCL init done.");
+    // LOG(info, "CCL init done.");
 
     int rank = mpi->myMPIRank();
     int size = mpi->numMPIProcesses();
@@ -92,16 +92,16 @@ private:
     ccl::kvs::address_type kvs_addr;
 
     if (rank == 0) {
-      LOG(info, "Rank {} broadcast.", rank);
+      // LOG(info, "Rank {} broadcast.", rank);
       kvs = ccl::create_main_kvs();
       kvs_addr = kvs->get_address();
       mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
-      LOG(info, "Rank {} broadcast done.", rank);
+      // LOG(info, "Rank {} broadcast done.", rank);
     } else {
-      LOG(info, "Rank {} broadcast.", rank);
+      // LOG(info, "Rank {} broadcast.", rank);
       mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
       kvs = ccl::create_kvs(kvs_addr);
-      LOG(info, "Rank {} broadcast done.", rank);
+      // LOG(info, "Rank {} broadcast done.", rank);
     }
     return  ccl::create_communicator(size, rank, kvs);
   }
@@ -147,11 +147,11 @@ public:
 
     // We are all here;
     for(int i = 0; i < graphs_.size(); ++i) {
-      LOG(info, "ScatterReduceAndReset graph {}.", i);
+      // LOG(info, "ScatterReduceAndReset graph {}.", i);
       ccl::stream stream = ccl::create_stream();
-      LOG(info, "ScatterReduceAndReset graph {} create stream.", i);
+      // LOG(info, "ScatterReduceAndReset graph {} create stream.", i);
       ccl::barrier(comm_, stream);
-      LOG(info, "ScatterReduceAndReset graph {} Pass barrier.", i);
+      // LOG(info, "ScatterReduceAndReset graph {} Pass barrier.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -161,16 +161,16 @@ public:
       size_t      bufsize = shardSize();
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
 
-      LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
+      // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
       ccl::reduce_scatter(sendbuf,
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
                           comm_,
                           stream).wait();
-      LOG(info, "ScatterReduceAndReset graph {} ReduceScatter end.", i);
+      // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter end.", i);
       ccl::barrier(comm_, stream);
-      LOG(info, "ScatterReduceAndReset graph {} barrier end.", i);
+      // LOG(info, "ScatterReduceAndReset graph {} barrier end.", i);
     }
 
     // reset gradients outside current shard
@@ -183,9 +183,9 @@ public:
     };
 
     //foreach(scatter);
-    LOG(info, "ForEach gradient reset");
+    // LOG(info, "ForEach gradient reset");
     foreach(reset);
-    LOG(info, "ForEach gradient reset end");
+    // LOG(info, "ForEach gradient reset end");
   }
 
   void allGatherParams() const override {
@@ -209,11 +209,11 @@ public:
     */
 
     for(int i = 0; i < graphs_.size(); ++i) {
-      LOG(info, "AllGather graph {}.", i);
+      // LOG(info, "AllGather graph {}.", i);
       ccl::stream stream = ccl::create_stream();
-      LOG(info, "AllGather stream create {}.", i);
+      // LOG(info, "AllGather stream create {}.", i);
       ccl::barrier(comm_, stream);
-      LOG(info, "AllGather pass barrier {}.", i);
+      // LOG(info, "AllGather pass barrier {}.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -224,7 +224,7 @@ public:
 
       std::vector<size_t> counts(numRanks(), bufsize);
 
-      LOG(info, "AllGather graph {} allgatherv start.", i);
+      // LOG(info, "AllGather graph {} allgatherv start.", i);
       ccl::allgatherv((const void *)sendbuf,
                       bufsize,
                       (void *)recvbuf,
@@ -232,10 +232,10 @@ public:
                       ccl::datatype::float32,
                       comm_,
                       stream).wait();
-      LOG(info, "AllGather graph {} allgatherv end.", i);
+      // LOG(info, "AllGather graph {} allgatherv end.", i);
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
       ccl::barrier(comm_, stream);
-      LOG(info, "AllGather graph {} barrier end end.", i);
+      // LOG(info, "AllGather graph {} barrier end end.", i);
     }
 
   }
@@ -273,7 +273,7 @@ public:
     std::vector<float> localParams;
     graphs_[0]->params()->vals()->get(localParams);
     // Now all MPI processes hold an identical copy of params() (remember, we assumed all devices hold the same params()).
-    LOG(info, "SwapParams distrubuted size {} local size {}.", distributedParams.size(), localParams.size());
+    // LOG(info, "SwapParams distrubuted size {} local size {}.", distributedParams.size(), localParams.size());
     ABORT_IF(distributedParams.size() != localParams.size(), "distributed sharded and local params have different size??");
 
     // swap
@@ -288,7 +288,7 @@ public:
     });
     for (auto& graph : graphs_) // broadcast to every local graph
       graph->params()->vals()->set(localParams);
-    LOG(info, "SwapParams ended.");
+    // LOG(info, "SwapParams ended.");
   }
 
   // Collect shards across multiple devices and MPI processes in the NCCL configuration into a single CPU-side vector.
@@ -303,17 +303,17 @@ public:
     }
     // second, concatenate across MPI processes
     // Note that all local devices occupy consecutive ncclRanks in order.
-    LOG(info, "Gather State before mpi branch.");
+    // LOG(info, "Gather State before mpi branch.");
     std::vector<float> data;
     if (mpi_) {
       // push one rank's data at a time using broadcast
       for(size_t mpiRank = 0; mpiRank < mpi_->numMPIProcesses(); mpiRank++) {
-        LOG(info, "Loop rank {}.", mpiRank);
+        // LOG(info, "Loop rank {}.", mpiRank);
         // broadcast mpiRank's localData to all
         if(mpiRank == mpi_->myMPIRank())
           tmp = localData;
         mpi_->bCast(tmp, /*rootRank=*/mpiRank);
-        LOG(info, "Loop rank {} after broadcast.", mpiRank);
+        // LOG(info, "Loop rank {} after broadcast.", mpiRank);
         // now all ranks have the same slice: concatenate (we will end up with the same on all MPI processes)
         data.insert(data.end(), tmp.begin(), tmp.end());
       }
@@ -321,7 +321,7 @@ public:
     else { // no MPI: localData is the complete result already
       data = std::move(localData);
     }
-    LOG(info, "Gather State ended.");
+    // LOG(info, "Gather State ended.");
     return data;
   }
 
