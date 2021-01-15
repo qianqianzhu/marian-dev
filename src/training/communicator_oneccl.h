@@ -148,9 +148,8 @@ public:
     // We are all here;
     for(int i = 0; i < graphs_.size(); ++i) {
       // LOG(info, "ScatterReduceAndReset graph {}.", i);
-      ccl::stream stream = ccl::create_stream();
       // LOG(info, "ScatterReduceAndReset graph {} create stream.", i);
-      ccl::barrier(comm_, stream);
+      ccl::barrier(comm_);
       // LOG(info, "ScatterReduceAndReset graph {} Pass barrier.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -166,53 +165,33 @@ public:
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
-                          comm_,
-                          stream).wait();
+                          comm_).wait();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter end.", i);
-      ccl::barrier(comm_, stream);
+      ccl::barrier(comm_);
       // LOG(info, "ScatterReduceAndReset graph {} barrier end.", i);
     }
 
-    // reset gradients outside current shard
-    auto reset = [this](size_t idx, size_t begin, size_t end) {
-      auto grad = graphs_[idx]->params()->grads();
+    // reset gradients
+    // In the future, we can keep quantization residuals here straight in the grads themselves.
+    auto resetGrads = [&](size_t i, size_t begin, size_t end) {
+      auto grads = graphs_[i]->params()->grads();
+      auto size = grads->size();
+      // reset everything outside the shard that we reduce in
       if (begin > 0)
-        grad->subtensor(0, begin)->set(0);
-      if (end < grad->size())
-        grad->subtensor(end, grad->size()-end)->set(0);
+        grads->subtensor(0, begin)->set(0.f);
+      if (end < size)
+        grads->subtensor(end, size - end)->set(0.f);
     };
-
-    //foreach(scatter);
-    // LOG(info, "ForEach gradient reset");
-    foreach(reset);
-    // LOG(info, "ForEach gradient reset end");
+    foreach(resetGrads);
   }
 
   void allGatherParams() const override {
 
-    /* Old implementation
-    // Update all graphs with parameter shard
-    auto gather = [this](size_t idx, size_t begin, size_t end) {
-      auto getShard = [&](Ptr<ExpressionGraph> graph) {
-        return graph->params()->vals()->subtensor(begin, end-begin);
-      };
-      auto curShard = getShard(graphs_[idx]);
-
-      // Copy parameter shard to each graph
-      for(auto graph : graphs_) {
-        if(graph != graphs_[idx]) {
-          auto subShard = getShard(graph);
-          subShard->copyFrom(curShard);
-        }
-      }
-    };
-    */
-
     for(int i = 0; i < graphs_.size(); ++i) {
       // LOG(info, "AllGather graph {}.", i);
-      ccl::stream stream = ccl::create_stream();
+      //ccl::stream stream = ccl::create_stream();
       // LOG(info, "AllGather stream create {}.", i);
-      ccl::barrier(comm_, stream);
+      ccl::barrier(comm_);
       // LOG(info, "AllGather pass barrier {}.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -230,36 +209,16 @@ public:
                       (void *)recvbuf,
                       counts,
                       ccl::datatype::float32,
-                      comm_,
-                      stream).wait();
+                      comm_).wait();
       // LOG(info, "AllGather graph {} allgatherv end.", i);
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
-      ccl::barrier(comm_, stream);
+      ccl::barrier(comm_);
       // LOG(info, "AllGather graph {} barrier end end.", i);
     }
 
   }
- /* Use NCCL's version
-  void swapParams(const std::vector<Tensor>& paramShards) const override {
-    // Update all graphs with parameter shard
-    auto gather = [this, paramShards](size_t idx, size_t begin, size_t end) {
-      ABORT_IF(end - begin != paramShards[idx]->size(), "inconsistent shard size (swapParams, [{}], {} vs {})??", idx, end-begin, paramShards[idx]->size());
-      // Copy parameter shard to each graph, apart from last graph
-      for(int i = 0; i < (int)graphs_.size() - 1; ++i) {
-        auto subParam = graphs_[i]->params()->vals()->subtensor(begin, paramShards[idx]->size());
-        subParam->copyFrom(paramShards[idx]);
-      }
 
-      // Swap shard with corresponding share from last graph
-      auto subParamLast = graphs_.back()->params()->vals()->subtensor(begin, paramShards[idx]->size());
-      paramShards[idx]->swap(subParamLast);
-    };
-    // Execute for each shard
-    foreach(gather);
-  }*/
-
-
-    // swap distributed paramShards with model params()
+  // swap distributed paramShards with model params()
   // It is assumed that all model params() on all devices and MPI processes are identical.
   // This is used for the smoothed parameters.
   void swapParams(const std::vector<Tensor>& distributedParamShards) const override {
@@ -289,6 +248,23 @@ public:
     for (auto& graph : graphs_) // broadcast to every local graph
       graph->params()->vals()->set(localParams);
     // LOG(info, "SwapParams ended.");
+  }
+
+  // Distribute a single CPU-side vector to shards across multiple devices and MPI processes.
+  // This is used when restoring optimizer state, which is sharded, and as part of swapParams().
+  // It is assumed that all MPI processes get the same data() passed. Hence, no MPI transfers are needed here.
+  void scatterState(const std::vector<float>& data, const OptimizerBase::ScatterStateSetFunc& setFn) const override {
+    std::cerr << "ScatterState" << std::endl;
+    size_t dataSize = data.size();
+    size_t numShards = numRanks();
+    size_t shardSize = (dataSize + numShards - 1) / numShards;
+    for(size_t localDeviceIndex = 0; localDeviceIndex < graphs_.size(); localDeviceIndex++) {
+      // We only slice out data that is kept in our MPI process. Remember that all MPI processes receive the same, complete data.
+      auto rank = myRank(localDeviceIndex);
+      size_t begin = rank * shardSize;
+      size_t end   = std::min(begin + shardSize, dataSize);
+      setFn(localDeviceIndex, data.begin() + begin, data.begin() + end);
+    }
   }
 
   // Collect shards across multiple devices and MPI processes in the NCCL configuration into a single CPU-side vector.
@@ -323,24 +299,6 @@ public:
     }
     // LOG(info, "Gather State ended.");
     return data;
-  }
-
-
-  // Distribute a single CPU-side vector to shards across multiple devices and MPI processes.
-  // This is used when restoring optimizer state, which is sharded, and as part of swapParams().
-  // It is assumed that all MPI processes get the same data() passed. Hence, no MPI transfers are needed here.
-  void scatterState(const std::vector<float>& data, const OptimizerBase::ScatterStateSetFunc& setFn) const override {
-    std::cerr << "ScatterState" << std::endl;
-    size_t dataSize = data.size();
-    size_t numShards = numRanks();
-    size_t shardSize = (dataSize + numShards - 1) / numShards;
-    for(size_t localDeviceIndex = 0; localDeviceIndex < graphs_.size(); localDeviceIndex++) {
-      // We only slice out data that is kept in our MPI process. Remember that all MPI processes receive the same, complete data.
-      auto rank = myRank(localDeviceIndex);
-      size_t begin = rank * shardSize;
-      size_t end   = std::min(begin + shardSize, dataSize);
-      setFn(localDeviceIndex, data.begin() + begin, data.begin() + end);
-    }
   }
 
 };
