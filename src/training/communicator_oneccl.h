@@ -202,18 +202,17 @@ public:
 
       auto vals = graphs_[i]->params()->vals();
       const auto* sendbuf = vals->subtensor(begin, end-begin)->data();
-      void*       recvbuf = vals->data();
+      auto*       recvbuf = vals->data();
       size_t      bufsize = shardSize();
 
       std::vector<size_t> counts(numRanks(), bufsize);
 
       // LOG(info, "AllGather graph {} allgatherv start.", i);
       LOG(info, "AllgatherV, buffsize {}", bufsize);
-      ccl::allgatherv((const void *)sendbuf,
+      ccl::allgatherv(sendbuf,
                       bufsize,
-                      (void *)recvbuf,
+                      recvbuf,
                       counts,
-                      ccl::datatype::float32,
                       comm_).wait();
       // LOG(info, "AllGather graph {} allgatherv end.", i);
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
@@ -227,7 +226,7 @@ public:
   // It is assumed that all model params() on all devices and MPI processes are identical.
   // This is used for the smoothed parameters.
   void swapParams(const std::vector<Tensor>& distributedParamShards) const override {
-    // get everything onto the CPU
+    // get everything onto the CPU @TODO we're already on the CPU, remove this
     auto distributedParams = gatherState([&](size_t localDeviceIndex) {
       std::vector<float> tmp;
       distributedParamShards[localDeviceIndex]->get(tmp);
