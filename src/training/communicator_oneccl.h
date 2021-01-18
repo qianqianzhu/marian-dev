@@ -43,17 +43,17 @@ private:
   }
   /*These are copied from the NCCL codebase*/
   size_t myRank(size_t localDeviceIndex) const { // map local device index to a global rank
-      LOG(info, "Myrank {}", mpi_->myMPIRank() * graphs_.size() + localDeviceIndex);
+      // LOG(info, "Myrank {}", mpi_->myMPIRank() * graphs_.size() + localDeviceIndex);
       return mpi_->myMPIRank() * graphs_.size() + localDeviceIndex;
   }
 
   size_t numRanks() const { // total number of devices across all MPI processes
-      LOG(info, "NumRanks {}", mpi_->numMPIProcesses() * graphs_.size());
+      // LOG(info, "NumRanks {}", mpi_->numMPIProcesses() * graphs_.size());
       return mpi_->numMPIProcesses() * graphs_.size();
   }
 
   size_t dataSize() const { // total number of floats that comprise the concatenated parameter and gradient vector
-    LOG(info, "DataSize {}", graphs_[0]->params()->vals()->size());
+    // LOG(info, "DataSize {}", graphs_[0]->params()->vals()->size());
     return graphs_[0]->params()->vals()->size();
   }
 
@@ -66,7 +66,7 @@ private:
 #if 1 // This is a good sanity check
     ABORT_IF(size * numShards != dataSize(), "presently, all shards must have the same size");
 #endif
-    LOG(info, "ShardSize {}", size);
+    // LOG(info, "ShardSize {}", size);
     return size;
   }
 
@@ -208,6 +208,7 @@ public:
       std::vector<size_t> counts(numRanks(), bufsize);
 
       // LOG(info, "AllGather graph {} allgatherv start.", i);
+      LOG(info, "AllgatherV, buffsize {}", bufsize);
       ccl::allgatherv((const void *)sendbuf,
                       bufsize,
                       (void *)recvbuf,
