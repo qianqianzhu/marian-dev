@@ -1,5 +1,6 @@
 #include "training/communicator.h"
 #include "training/communicator_oneccl.h"
+#include "training/communicator_mpi.h"
 #include "common/utils.h"
 
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
@@ -19,10 +20,15 @@ Ptr<ICommunicator> createCommunicator(
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
   if(noNccl) {
     LOG(warn, "[comm] NCCL communicator overridden");
-    if (mpi && mpi->numMPIProcesses() > 1) {
-      return New<OneCCLCommunicator>(graphs, mpi);
-    } else {
-      return New<DefaultCommunicator>(graphs, mpi);
+    for(auto& graph : graphs) { //@TODO this logic needs to be revised. For starters we need to know if cpu-threads is set
+      if(graph->getBackend()->getDeviceId().type == DeviceType::cpu) {
+        if (mpi && mpi->numMPIProcesses() > 1) {
+          return New<MpiCommunicator>(graphs, mpi);
+          //return New<OneCCLCommunicator>(graphs, mpi);
+        } else {
+          return New<DefaultCommunicator>(graphs, mpi);
+        }
+      }
     }
   }
 
@@ -30,7 +36,8 @@ Ptr<ICommunicator> createCommunicator(
   for(auto& graph : graphs) {
     if(graph->getBackend()->getDeviceId().type == DeviceType::cpu) {
       if (mpi && mpi->numMPIProcesses() > 1) {
-        return New<OneCCLCommunicator>(graphs, mpi);
+        return New<MpiCommunicator>(graphs, mpi);
+        //return New<OneCCLCommunicator>(graphs, mpi);
       } else {
         return New<DefaultCommunicator>(graphs, mpi);
       }
@@ -51,9 +58,11 @@ Ptr<ICommunicator> createCommunicator(
 #else // no CUDA or no NCCL
   noNccl; // (unused)
   if (mpi && mpi->numMPIProcesses() > 1) {
-    return New<OneCCLCommunicator>(graphs, mpi);
+    return New<MpiCommunicator>(graphs, mpi);
+    //return New<OneCCLCommunicator>(graphs, mpi);
   } else {
-    return New<DefaultCommunicator>(graphs, mpi);
+    return New<MpiCommunicator>(graphs, mpi);
+    //return New<DefaultCommunicator>(graphs, mpi);
   }
 #endif
 }
@@ -139,6 +148,15 @@ public:
     if (sendbuf == recvbuf)
       sendbuf = MPI_IN_PLACE; // MSMPI requires this
     HANDLE_MPI_ERROR(MPI_Allreduce(sendbuf, recvbuf, (int)count, datatype, op, comm));
+  }
+  virtual void reduceScatter(const void * sendbuf, void * recvbuf, int * recvcounts, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm = MPI_COMM_WORLD) const override {
+    HANDLE_MPI_ERROR(MPI_Reduce_scatter(sendbuf, recvbuf, recvcounts, datatype, op, comm));
+  }
+  virtual void reduceScatterBlock(const void * sendbuf, void * recvbuf, int count, MPI_Datatype datatype, MPI_Op op, MPI_Comm comm = MPI_COMM_WORLD) const override {
+    HANDLE_MPI_ERROR(MPI_Reduce_scatter_block(sendbuf, recvbuf, count, datatype, op, comm));
+  }
+  virtual void Allgather(const void *sendbuf, int sendcount, MPI_Datatype sendtype, void *recvbuf, int recvcount, MPI_Datatype recvtype, MPI_Comm comm = MPI_COMM_WORLD) const override {
+    HANDLE_MPI_ERROR(MPI_Allgather(sendbuf, sendcount, sendtype, recvbuf, recvcount, recvtype, comm));
   }
   virtual void finalize() override {
     HANDLE_MPI_ERROR(MPI_Finalize());

@@ -1,11 +1,10 @@
 #include "training/communicator.h"
 #include "3rd_party/threadpool.h"
-#include <oneapi/ccl.hpp>
 
 namespace marian {
 
 // This communicator should be used when on CPU with multiple nodes
-class OneCCLCommunicator : public ICommunicator {
+class MpiCommunicator : public ICommunicator {
 private:
   std::vector<Ptr<TensorAllocator>> paramsAllocs_;
   std::vector<Tensor> tmpTensors_;
@@ -84,54 +83,27 @@ private:
     return RankShardRange(myRank(localDeviceIndex));
   }
 
-  ccl::communicator commFactory(Ptr<IMPIWrapper> mpi) {
-    // LOG(info, "Communicator factory.");
-    ccl::init();
-
-    // LOG(info, "CCL init done.");
-
-    int rank = mpi->myMPIRank();
-    int size = mpi->numMPIProcesses();
-    ccl::shared_ptr_class<ccl::kvs> kvs;
-    ccl::kvs::address_type kvs_addr;
-
-    if (rank == 0) {
-      // LOG(info, "Rank {} broadcast.", rank);
-      kvs = ccl::create_main_kvs();
-      kvs_addr = kvs->get_address();
-      mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
-      // LOG(info, "Rank {} broadcast done.", rank);
-    } else {
-      // LOG(info, "Rank {} broadcast.", rank);
-      mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
-      kvs = ccl::create_kvs(kvs_addr);
-      // LOG(info, "Rank {} broadcast done.", rank);
-    }
-    return  ccl::create_communicator(size, rank, kvs);
-  }
-
 public:
-  ccl::communicator comm_;
+
   //std::vector<ccl::stream> streams_;
   Ptr<IMPIWrapper> mpi_; // Can not be null!
-  OneCCLCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
+  MpiCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs),
         //streams_(graphs.size()),
         threadPool_(graphs.size(), graphs.size()), threadResults_(graphs.size()),
-        comm_(commFactory(mpi)),
         mpi_(mpi) {
       ABORT_IF(!mpi_, "We must have a valid MPI backend"); //We can't be null
-      LOG(info, "Using OneCCL as a communication backend.");
+      LOG(info, "Using MPI as a communication backend.");
       // Create one stream per communicator. Apparently there's no default stream constructor in this version.
       //for (int i=0; i< streams_.size(); i++) {
       //  streams_[i] = ccl::create_stream(); // Hopefully it's a CPU stream
       //}
   }
 
-  ~OneCCLCommunicator() override {/*delete comm_;*/}
+  ~MpiCommunicator() override {/*delete comm_;*/}
 
   /*Copied from NCCL communicator*/
-    void foreach(const ForeachFunc& func, bool parallel = true) const override {
+  void foreach(const ForeachFunc& func, bool parallel = true) const override {
     parallel &= graphs_.size() > 1;
 
     for(size_t i = 0; i < graphs_.size(); ++i) {
@@ -146,16 +118,43 @@ public:
       for(size_t i = 0; i < graphs_.size(); ++i)
         threadResults_[i].wait();
   }
-
+/*
   void scatterReduceAndResetGrads() const override {
-    //const_cast<OneCCLCommunicator*>(this)->lazyInit(); @TODO WHy?
+    const_cast<MpiCommunicator*>(this)->lazyInit();
+
+    // Gather gradients from different devices into current gradient shards
+    auto scatter = [this](size_t idx, size_t begin, size_t end) {
+      auto curGrad = graphs_[idx]->params()->grads()->subtensor(begin, end-begin);
+
+      // collect and sum gradients
+      for(auto graph : graphs_) {
+        if(graph != graphs_[idx]) {
+          auto subGrad = graph->params()->grads()->subtensor(begin, end - begin);
+          tmpTensors_[idx]->copyFrom(subGrad);
+
+          using namespace functional;
+          Element(_1 = _1 + _2, curGrad, tmpTensors_[idx]);
+        }
+      }
+    };
+
+    // reset gradients outside current shard
+    auto reset = [this](size_t idx, size_t begin, size_t end) {
+      auto grad = graphs_[idx]->params()->grads();
+      if (begin > 0)
+        grad->subtensor(0, begin)->set(0);
+      if (end < grad->size())
+        grad->subtensor(end, grad->size()-end)->set(0);
+    };
+
+    foreach(scatter);
+    foreach(reset);
+  }
+*/
+  void scatterReduceAndResetGrads() const override {
 
     // We are all here;
     for(int i = 0; i < graphs_.size(); ++i) {
-      // LOG(info, "ScatterReduceAndReset graph {}.", i);
-      // LOG(info, "ScatterReduceAndReset graph {} create stream.", i);
-      ccl::barrier(comm_);
-      // LOG(info, "ScatterReduceAndReset graph {} Pass barrier.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
@@ -163,16 +162,22 @@ public:
       const auto* sendbuf = grads->data();
       auto*       recvbuf = grads->subtensor(begin, end-begin)->data();
       size_t      bufsize = shardSize();
-      ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
 
+      //LOG(info, "Shard range for graph {} begin {} end {} shardsize {}.", i, begin, end, bufsize);
+      ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
+      // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid
+      std::vector<float> tmpsendbff(grads->size());
+      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*(grads->size()));
+      mpi_->barrier();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      ccl::reduce_scatter(sendbuf,
-                          recvbuf,
+      mpi_->reduceScatterBlock((const void *)&tmpsendbff[0],
+                          (void *)recvbuf,
                           bufsize,
-                          ccl::reduction::sum,
-                          comm_).wait();
+                          MPI_FLOAT,
+                          MPI_SUM);
+      //std::memcpy(recvbuf, &tmprecvbff[0], sizeof(float)*(end-begin)); //@TODO this might not be correct
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter end.", i);
-      ccl::barrier(comm_);
+      mpi_->barrier();
       // LOG(info, "ScatterReduceAndReset graph {} barrier end.", i);
     }
 
@@ -188,15 +193,37 @@ public:
         grads->subtensor(end, size - end)->set(0.f);
     };
     foreach(resetGrads);
-  }
+  }//*/
 
+  // Non-mpi version
+  void allGatherParams() const override {
+
+    // Update all graphs with parameter shard
+    auto gather = [this](size_t idx, size_t begin, size_t end) {
+      auto getShard = [&](Ptr<ExpressionGraph> graph) {
+        return graph->params()->vals()->subtensor(begin, end-begin);
+      };
+      auto curShard = getShard(graphs_[idx]);
+
+      // Copy parameter shard to each graph
+      for(auto graph : graphs_) {
+        if(graph != graphs_[idx]) {
+          auto subShard = getShard(graph);
+          subShard->copyFrom(curShard);
+        }
+      }
+    };
+
+    foreach(gather);
+  }
+/*
   void allGatherParams() const override {
 
     for(int i = 0; i < graphs_.size(); ++i) {
       // LOG(info, "AllGather graph {}.", i);
       //ccl::stream stream = ccl::create_stream();
       // LOG(info, "AllGather stream create {}.", i);
-      ccl::barrier(comm_);
+      mpi_->barrier();
       // LOG(info, "AllGather pass barrier {}.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -206,23 +233,28 @@ public:
       auto*       recvbuf = vals->data();
       size_t      bufsize = shardSize();
 
-      std::vector<size_t> counts(numRanks(), bufsize);
+      //std::vector<size_t> counts(numRanks(), bufsize);
+      std::vector<float> tmpsendbff(end-begin);
+      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*(end-begin));
 
       // LOG(info, "AllGather graph {} allgatherv start.", i);
       // LOG(info, "AllgatherV, buffsize {}", bufsize);
-      ccl::allgatherv(sendbuf,
+      mpi_->Allgather((const void *)&tmpsendbff[0],
                       bufsize,
-                      recvbuf,
-                      counts,
-                      comm_).wait();
+                      MPI_FLOAT,
+                      (void *)recvbuf,
+                      bufsize,
+                      MPI_FLOAT);
+
+      //std::memcpy(sendbuf, &tmpsendbff[0], sizeof(float)*(end-begin));
       // LOG(info, "AllGather graph {} allgatherv end.", i);
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
-      ccl::barrier(comm_);
+      mpi_->barrier();
       // LOG(info, "AllGather graph {} barrier end end.", i);
     }
 
   }
-
+*/
   // swap distributed paramShards with model params()
   // It is assumed that all model params() on all devices and MPI processes are identical.
   // This is used for the smoothed parameters.
