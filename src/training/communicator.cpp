@@ -58,8 +58,8 @@ Ptr<ICommunicator> createCommunicator(
 #else // no CUDA or no NCCL
   noNccl; // (unused)
   if (mpi && mpi->numMPIProcesses() > 1) {
-    return New<MpiCommunicator>(graphs, mpi);
-    //return New<OneCCLCommunicator>(graphs, mpi);
+    //return New<MpiCommunicator>(graphs, mpi);
+    return New<OneCCLCommunicator>(graphs, mpi);
   } else {
     return New<MpiCommunicator>(graphs, mpi);
     //return New<DefaultCommunicator>(graphs, mpi);

@@ -170,7 +170,7 @@ public:
       std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*(grads->size()));
       mpi_->barrier();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      mpi_->reduceScatterBlock((const void *)&tmpsendbff[0],
+      mpi_->reduceScatterBlock((const void *)&tmpsendbff[begin],
                           (void *)recvbuf,
                           bufsize,
                           MPI_FLOAT,

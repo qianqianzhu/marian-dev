@@ -166,7 +166,7 @@ public:
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
 
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      ccl::reduce_scatter(sendbuf,
+      ccl::reduce_scatter(&sendbuf[begin],
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
@@ -212,7 +212,7 @@ public:
       // LOG(info, "AllgatherV, buffsize {}", bufsize);
       ccl::allgatherv(sendbuf,
                       bufsize,
-                      recvbuf,
+                      &recvbuf[begin],
                       counts,
                       comm_).wait();
       // LOG(info, "AllGather graph {} allgatherv end.", i);
