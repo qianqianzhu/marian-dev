@@ -149,11 +149,12 @@ public:
 
     foreach(scatter);
     foreach(reset);
-  }
-*/
+  }*/
+
   void scatterReduceAndResetGrads() const override {
 
     // We are all here;
+    thread_local std::vector<float> tmpsendbff(shardSize());
     for(int i = 0; i < graphs_.size(); ++i) {
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -163,14 +164,13 @@ public:
       auto*       recvbuf = grads->subtensor(begin, end-begin)->data();
       size_t      bufsize = shardSize();
 
-      //LOG(info, "Shard range for graph {} begin {} end {} shardsize {}.", i, begin, end, bufsize);
+      //LOG(info, "Shard range for graph {} begin {} end {} shardsize {}, rank {}", i, begin, end, bufsize, myRank(i));
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
       // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid
-      std::vector<float> tmpsendbff(grads->size());
-      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*(grads->size()));
+      std::memcpy(&tmpsendbff[0], &sendbuf[begin], sizeof(float)*bufsize);
       mpi_->barrier();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      mpi_->reduceScatterBlock((const void *)&tmpsendbff[begin],
+      mpi_->reduceScatterBlock((const void *)&tmpsendbff[0],
                           (void *)recvbuf,
                           bufsize,
                           MPI_FLOAT,
@@ -217,7 +217,7 @@ public:
     foreach(gather);
   }
 /*
-  void allGatherParams() const override {
+ void allGatherParams() const override {
 
     for(int i = 0; i < graphs_.size(); ++i) {
       // LOG(info, "AllGather graph {}.", i);
@@ -242,7 +242,7 @@ public:
       mpi_->Allgather((const void *)&tmpsendbff[0],
                       bufsize,
                       MPI_FLOAT,
-                      (void *)recvbuf,
+                      (void *)&recvbuf[begin],
                       bufsize,
                       MPI_FLOAT);
 
