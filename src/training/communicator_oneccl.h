@@ -84,14 +84,15 @@ private:
     return RankShardRange(myRank(localDeviceIndex));
   }
 
+// Old
   ccl::communicator commFactory(Ptr<IMPIWrapper> mpi) {
     // LOG(info, "Communicator factory.");
     ccl::init();
 
     // LOG(info, "CCL init done.");
 
-    int rank = mpi->myMPIRank();
-    int size = mpi->numMPIProcesses();
+    int rank = mpi->myMPIRank(); //WRONG WRONG WRONG WRONG WRONG!
+    int size = numRanks();
     ccl::shared_ptr_class<ccl::kvs> kvs;
     ccl::kvs::address_type kvs_addr;
 
@@ -111,21 +112,42 @@ private:
   }
 
 public:
-  ccl::communicator comm_;
+  std::vector<ccl::communicator> comms_;
   //std::vector<ccl::stream> streams_;
   Ptr<IMPIWrapper> mpi_; // Can not be null!
   OneCCLCommunicator(const std::vector<Ptr<ExpressionGraph>>& graphs, Ptr<IMPIWrapper> mpi)
       : ICommunicator(graphs),
         //streams_(graphs.size()),
         threadPool_(graphs.size(), graphs.size()), threadResults_(graphs.size()),
-        comm_(commFactory(mpi)),
         mpi_(mpi) {
       ABORT_IF(!mpi_, "We must have a valid MPI backend"); //We can't be null
       LOG(info, "Using OneCCL as a communication backend.");
-      // Create one stream per communicator. Apparently there's no default stream constructor in this version.
-      //for (int i=0; i< streams_.size(); i++) {
-      //  streams_[i] = ccl::create_stream(); // Hopefully it's a CPU stream
-      //}
+
+      // Create the communicators
+      ccl::init();
+
+      for (size_t i = 0; i < graphs_.size(); i++) {
+        int rank = myRank(i); //mpi->myMPIRank(); //WRONG WRONG WRONG WRONG WRONG!
+        int size = numRanks();
+        ccl::shared_ptr_class<ccl::kvs> kvs;
+        ccl::kvs::address_type kvs_addr; // This doesn't work in our usecase unless we have a separate process per device
+        LOG(info, "Init A");
+        if (rank == 0) {
+          // LOG(info, "Rank {} broadcast.", rank);
+          kvs = ccl::create_main_kvs();
+          kvs_addr = kvs->get_address();
+          mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+          // LOG(info, "Rank {} broadcast done.", rank);
+        } else {
+          // LOG(info, "Rank {} broadcast.", rank);
+          mpi->bCast((void*)kvs_addr.data(), ccl::kvs::address_max_size, MPI_BYTE, 0);
+          kvs = ccl::create_kvs(kvs_addr);
+          // LOG(info, "Rank {} broadcast done.", rank);
+        }
+        LOG(info, "Init B");
+        comms_.push_back(ccl::create_communicator(size, rank, kvs));
+        LOG(info, "Init C");
+      }
   }
 
   ~OneCCLCommunicator() override {/*delete comm_;*/}
@@ -154,7 +176,7 @@ public:
     for(int i = 0; i < graphs_.size(); ++i) {
       // LOG(info, "ScatterReduceAndReset graph {}.", i);
       // LOG(info, "ScatterReduceAndReset graph {} create stream.", i);
-      ccl::barrier(comm_);
+      ccl::barrier(comms_[i]);
       // LOG(info, "ScatterReduceAndReset graph {} Pass barrier.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -166,13 +188,13 @@ public:
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
 
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      ccl::reduce_scatter(&sendbuf[begin],
+      ccl::reduce_scatter(sendbuf, //Maybe begin?
                           recvbuf,
                           bufsize,
                           ccl::reduction::sum,
-                          comm_).wait();
+                          comms_[i]).wait();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter end.", i);
-      ccl::barrier(comm_);
+      ccl::barrier(comms_[i]);
       // LOG(info, "ScatterReduceAndReset graph {} barrier end.", i);
     }
 
@@ -196,7 +218,7 @@ public:
       // LOG(info, "AllGather graph {}.", i);
       //ccl::stream stream = ccl::create_stream();
       // LOG(info, "AllGather stream create {}.", i);
-      ccl::barrier(comm_);
+      ccl::barrier(comms_[i]);
       // LOG(info, "AllGather pass barrier {}.", i);
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -212,12 +234,12 @@ public:
       // LOG(info, "AllgatherV, buffsize {}", bufsize);
       ccl::allgatherv(sendbuf,
                       bufsize,
-                      &recvbuf[begin],
+                      recvbuf,
                       counts,
-                      comm_).wait();
+                      comms_[i]).wait();
       // LOG(info, "AllGather graph {} allgatherv end.", i);
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloat, comms_[i], streams_[i]));
-      ccl::barrier(comm_);
+      ccl::barrier(comms_[i]);
       // LOG(info, "AllGather graph {} barrier end end.", i);
     }
 
