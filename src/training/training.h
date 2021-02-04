@@ -92,6 +92,10 @@ public:
       for(auto batch : *batchGenerator) {
         if (!scheduler->keepGoing())
           break;
+        //@TODO PROBABLY different workers should see different batches
+        // id % worker maybe?
+        //for (auto id : batch->getSentenceIds() )
+        //  LOG(info, "Let's try to print a mini-batch id: {}", id);
         model->update(batch);
       }
 

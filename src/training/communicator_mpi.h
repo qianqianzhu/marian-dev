@@ -149,8 +149,8 @@ public:
 
     foreach(scatter);
     foreach(reset);
-  }*/
-
+  }
+*/
   void scatterReduceAndResetGrads() const override {
 
     // We are all here;
@@ -166,11 +166,11 @@ public:
 
       //LOG(info, "Shard range for graph {} begin {} end {} shardsize {}, rank {}", i, begin, end, bufsize, myRank(i));
       ABORT_IF(grads->subtensor(begin, end-begin)->size() != bufsize, "unexpected subtensor size??");
-      // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid
+      // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid. Allegedly this could be achieved with MPI_IN_PLACe if it is intracommunicator
       std::memcpy(&tmpsendbff[0], &sendbuf[begin], sizeof(float)*bufsize);
       mpi_->barrier();
       // LOG(info, "ScatterReduceAndReset graph {} ReduceScatter start.", i);
-      mpi_->reduceScatterBlock((const void *)&tmpsendbff[0],
+      mpi_->reduceScatterBlock(MPI_IN_PLACE, //(const void *)&tmpsendbff[0], //MPI_IN_PLACE crashes
                           (void *)recvbuf,
                           bufsize,
                           MPI_FLOAT,
@@ -196,6 +196,7 @@ public:
   }//*/
 
   // Non-mpi version
+  /*
   void allGatherParams() const override {
 
     // Update all graphs with parameter shard
@@ -215,8 +216,8 @@ public:
     };
 
     foreach(gather);
-  }
-/*
+  }*/
+
  void allGatherParams() const override {
 
     for(int i = 0; i < graphs_.size(); ++i) {
@@ -234,15 +235,19 @@ public:
       size_t      bufsize = shardSize();
 
       //std::vector<size_t> counts(numRanks(), bufsize);
-      std::vector<float> tmpsendbff(end-begin);
-      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*(end-begin));
+      std::vector<float> tmpsendbff(bufsize);
+      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*bufsize);
+
+      int my_rank;
+      MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 
       // LOG(info, "AllGather graph {} allgatherv start.", i);
       // LOG(info, "AllgatherV, buffsize {}", bufsize);
-      mpi_->Allgather((const void *)&tmpsendbff[0],
+      //LOG(info, "numMpiProcs: {}, myRank: {} mpi_my_rank {}", mpi_->numMPIProcesses(), mpi_->myMPIRank(), my_rank);
+      mpi_->Allgather(MPI_IN_PLACE, //(const void *)&tmpsendbff[0],
                       bufsize,
                       MPI_FLOAT,
-                      (void *)&recvbuf[begin],
+                      (void *)&recvbuf[0],
                       bufsize,
                       MPI_FLOAT);
 
@@ -254,7 +259,7 @@ public:
     }
 
   }
-*/
+
   // swap distributed paramShards with model params()
   // It is assumed that all model params() on all devices and MPI processes are identical.
   // This is used for the smoothed parameters.

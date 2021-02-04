@@ -61,8 +61,9 @@ Ptr<ICommunicator> createCommunicator(
     return New<MpiCommunicator>(graphs, mpi);
     //return New<OneCCLCommunicator>(graphs, mpi);
   } else {
-    return New<MpiCommunicator>(graphs, mpi);
-    //return New<DefaultCommunicator>(graphs, mpi);
+    //return New<OneCCLCommunicator>(graphs, mpi);
+    //return New<MpiCommunicator>(graphs, mpi);
+    return New<DefaultCommunicator>(graphs, mpi);
   }
 #endif
 }
