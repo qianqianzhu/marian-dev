@@ -10,7 +10,7 @@ namespace marian {
 inline void timeOpPrint(std::chrono::time_point<std::chrono::steady_clock>& start, std::chrono::time_point<std::chrono::steady_clock>& end, Expr input, std::string direction="forward") {
   std::thread::id this_id = std::this_thread::get_id();
   std::chrono::duration<double> elapsed_seconds = end-start;
-  std::cerr << this_id << " " << direction << " Elapsed time: " << elapsed_seconds.count() << "s: " << input->name() << std::endl;;
+  std::cerr << this_id << " " << direction << " Elapsed time: " << elapsed_seconds.count() << " s: " << input->name() << " " << input->shape() << std::endl;;
 }
 
 ExpressionGraph::ExpressionGraph(bool inference)
