@@ -6,6 +6,7 @@ include_directories(3rd_party/SQLiteCpp/include)
 include_directories(3rd_party/sentencepiece)
 include_directories(3rd_party/fbgemm/include)
 include_directories(3rd_party/intgemm)
+include_directories(3rd_party/oneCCL/include)
 include_directories(${CMAKE_BINARY_DIR}/src/3rd_party/intgemm) # running cmake on the intgemm submodule triggers config file generation in this directory.
 include_directories(${CMAKE_BINARY_DIR}/local/include)
 

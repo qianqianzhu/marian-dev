@@ -13,6 +13,9 @@ if(COMPILE_CPU)
     set(INTGEMM_DONT_BUILD_TESTS ON CACHE BOOL "Disable intgemm tests")
     add_subdirectory(./intgemm)
   endif()
+  
+  set(BUILD_UT OFF CACHE BOOL "Disable oneCCL unit tests")
+  add_subdirectory(./oneCCL)
 endif(COMPILE_CPU)
 
 if(USE_FBGEMM)

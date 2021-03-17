@@ -9,6 +9,7 @@
 #include "mpi.h"
 #endif
 #include "training/communicator_mpi.h"
+#include "training/communicator_oneccl.h"
 
 namespace marian {
 
@@ -28,6 +29,7 @@ Ptr<ICommunicator> createCommunicator(
   mpi;
   if (mpi && mpi->numMPIProcesses() > 1 && graphs[0]->getBackend()->getDeviceId().type == DeviceType::cpu) {
     return New<MpiCommunicator>(graphs, shardingMode, mpi);
+    // return New<OneCCLCommunicator>(graphs, shardingMode, mpi);
   }
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
   if(noNccl) {
@@ -92,7 +94,6 @@ public:
     int providedThreadingMode;
     HANDLE_MPI_ERROR(MPI_Init_thread(&argc, &argvp, MPI_THREAD_MULTIPLE, &providedThreadingMode));
     MPI_Comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_RETURN); // have errors reported as return codes
-
     MPI_Comm_size(MPI_COMM_WORLD, &comm_world_size_);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank_);
 
