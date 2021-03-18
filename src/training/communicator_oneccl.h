@@ -173,7 +173,7 @@ public:
       barrier(); // This barrier should be outside of the for loop probably.
       if(shardingMode_ == ShardingMode::global) {
         // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid. Allegedly this could be achieved with MPI_IN_PLACe if it is intracommunicator
-        std::memcpy(&tmpsendbff[0], &sendbuf[0], sizeof(float)*grads->size());
+        //std::memcpy(&tmpsendbff[0], &sendbuf[0], sizeof(float)*grads->size());
         ccl::reduce_scatter(sendbuf, recvbuf, bufsize, cclFloatType, ccl::reduction::sum, comm_).wait(); // apparently this is somehow faster??
         // NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloatType, ncclSum, globalComms_[i], streams_[i]));
       } else {
