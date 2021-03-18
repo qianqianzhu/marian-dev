@@ -28,8 +28,8 @@ Ptr<ICommunicator> createCommunicator(
   bool noNccl, ShardingMode shardingMode, Ptr<IMPIWrapper> mpi) {
   mpi;
   if (mpi && mpi->numMPIProcesses() > 1 && graphs[0]->getBackend()->getDeviceId().type == DeviceType::cpu) {
-    return New<MpiCommunicator>(graphs, shardingMode, mpi);
-    // return New<OneCCLCommunicator>(graphs, shardingMode, mpi);
+    //return New<MpiCommunicator>(graphs, shardingMode, mpi);
+    return New<OneCCLCommunicator>(graphs, shardingMode, mpi);
   }
 #if defined(CUDA_FOUND) && defined(USE_NCCL)
   if(noNccl) {

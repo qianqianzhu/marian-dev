@@ -223,7 +223,7 @@ public:
 
       //mpi_->Allgather(sendbuf, bufsize, cclFloatType, recvbuf, bufsize, cclFloatType);
       std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*bufsize);
-      ccl::allgatherv(sendbuf, bufsize, recvbuf, counts, cclFloatType, comm_);
+      ccl::allgatherv((const void *)&tmpsendbff[0], bufsize, recvbuf, counts, cclFloatType, comm_);
       //the local version did it so:
       //auto& comms = shardingMode_ == ShardingMode::global ? globalComms_ : localComms_;
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloatType, comms[i], streams_[i]));
@@ -239,12 +239,13 @@ public:
       ccl::datatype cclFloatType = ccl::datatype::float32;
       if(vals->type() == Type::float16)
         cclFloatType = ccl::datatype::float16;
-      barrier(); // This barrier should be outside of the for loop probably.
 
       if(average)
         ccl::allreduce(vals->data(), vals->data(), vals->size(), cclFloatType, ccl::reduction::sum, comm_).wait();
       else
         ccl::broadcast(vals->data(), vals->size(), cclFloatType, 0, comm_).wait();
+
+      barrier(); // This barrier should be outside of the for loop probably.
     }
 
 
