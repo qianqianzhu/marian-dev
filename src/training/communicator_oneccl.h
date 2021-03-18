@@ -156,7 +156,6 @@ public:
   }
 
   void scatterReduceAndResetGrads() const override {
-    thread_local std::vector<float> tmpsendbff(graphs_[0]->params()->grads()->size());
     for(int i = 0; i < graphs_.size(); ++i) {
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
@@ -173,7 +172,6 @@ public:
       barrier(); // This barrier should be outside of the for loop probably.
       if(shardingMode_ == ShardingMode::global) {
         // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid. Allegedly this could be achieved with MPI_IN_PLACe if it is intracommunicator
-        //std::memcpy(&tmpsendbff[0], &sendbuf[0], sizeof(float)*grads->size());
         ccl::reduce_scatter(sendbuf, recvbuf, bufsize, cclFloatType, ccl::reduction::sum, comm_).wait(); // apparently this is somehow faster??
         // NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloatType, ncclSum, globalComms_[i], streams_[i]));
       } else {
@@ -205,13 +203,12 @@ public:
   // @TODO: For unknown reasons, this takes longer than any other operation incl. scatterReduceAndResetGrads().
   //        But both should have the same number of data transfers of the same size.
   void allGatherParams() const override {
-    thread_local std::vector<float> tmpsendbff(shardSize());
     for(int i = 0; i < graphs_.size(); ++i) {
       size_t begin, end; std::tie
       (begin, end) = localShardRange(i);
 
       auto vals = graphs_[i]->params()->vals();
-      const auto* sendbuf = vals->subtensor(begin, end-begin)->data();
+      //const auto* sendbuf = vals->subtensor(begin, end-begin)->data(); // oneCCL just needs the recvbuf in the case of partially overlapping buffers.
       void*       recvbuf = vals->data();
       size_t      bufsize = shardSize();
       std::vector<size_t> counts(numRanks(), bufsize);
@@ -221,9 +218,7 @@ public:
         cclFloatType = ccl::datatype::float16;
       barrier(); // This barrier should be outside of the for loop probably.
 
-      //mpi_->Allgather(sendbuf, bufsize, cclFloatType, recvbuf, bufsize, cclFloatType);
-      std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*bufsize);
-      ccl::allgatherv((const void *)&tmpsendbff[0], bufsize, recvbuf, counts, cclFloatType, comm_);
+      ccl::allgatherv(recvbuf, bufsize, recvbuf, counts, cclFloatType, comm_).wait();
       //the local version did it so:
       //auto& comms = shardingMode_ == ShardingMode::global ? globalComms_ : localComms_;
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloatType, comms[i], streams_[i]));
