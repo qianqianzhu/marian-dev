@@ -169,7 +169,7 @@ public:
       ccl::datatype cclFloatType = ccl::datatype::float32;
       if(grads->type() == Type::float16)
         cclFloatType = ccl::datatype::float16;
-      barrier(); // This barrier should be outside of the for loop probably.
+      //barrier(); // This barrier should be outside of the for loop probably.
       if(shardingMode_ == ShardingMode::global) {
         // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid. Allegedly this could be achieved with MPI_IN_PLACe if it is intracommunicator
         ccl::reduce_scatter(sendbuf, recvbuf, bufsize, cclFloatType, ccl::reduction::sum, comm_).wait(); // apparently this is somehow faster??
@@ -179,7 +179,7 @@ public:
         //NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloatType, ncclSum,  localComms_[i], streams_[i])); // reduceScatter locally
         //NCCL_CHECK(    ncclAllReduce(recvbuf, recvbuf, bufsize, ncclFloatType, ncclSum, globalComms_[i], streams_[i])); // then do tuple-wise allReduce across processes
       }
-      barrier();
+      //barrier();
     }
 
     // reset gradients outside the shards we reduce in
@@ -216,13 +216,13 @@ public:
       ccl::datatype cclFloatType = ccl::datatype::float32;
       if(vals->type() == Type::float16)
         cclFloatType = ccl::datatype::float16;
-      barrier(); // This barrier should be outside of the for loop probably.
+      //barrier(); // This barrier should be outside of the for loop probably.
 
       ccl::allgatherv(recvbuf, bufsize, recvbuf, counts, cclFloatType, comm_).wait();
       //the local version did it so:
       //auto& comms = shardingMode_ == ShardingMode::global ? globalComms_ : localComms_;
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloatType, comms[i], streams_[i]));
-      barrier();
+      //barrier();
     }
   }
 
@@ -240,7 +240,7 @@ public:
       else
         ccl::broadcast(vals->data(), vals->size(), cclFloatType, 0, comm_).wait();
 
-      barrier(); // This barrier should be outside of the for loop probably.
+      //barrier(); // This barrier should be outside of the for loop probably.
     }
 
 
@@ -269,7 +269,7 @@ public:
     // if we are here we use local mode and shards are process-wise copies
     // This is not yet supported for MPICommunicator, but it wouldn't hurt to have the code there
     ABORT("Local sharding mode reduceScatter not supported yet for mpi communicator.");
-    barrier();
+    //barrier();
     for(int i = 0; i < opts.size(); ++i) {
       for(auto shard : opts[i]->getShards()) {
         if(shard) {

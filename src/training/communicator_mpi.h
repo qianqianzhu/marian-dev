@@ -148,7 +148,7 @@ public:
       MPI_Datatype mpiFLoatType = MPI_FLOAT;
       if(grads->type() == Type::float16)
         ABORT("Half precision is datatype is not supported by MPI.");
-      mpiBarrier(); // This barrier should be outside of the for loop probably.
+      //mpiBarrier(); // This barrier should be outside of the for loop probably.
       if(shardingMode_ == ShardingMode::global) {
         // MPI prohibits aliasing because of ancient fortran requirement. MPI Is stupid. Allegedly this could be achieved with MPI_IN_PLACe if it is intracommunicator
         std::memcpy(&tmpsendbff[0], &sendbuf[0], sizeof(float)*grads->size());
@@ -159,7 +159,7 @@ public:
         //NCCL_CHECK(ncclReduceScatter(sendbuf, recvbuf, bufsize, ncclFloatType, ncclSum,  localComms_[i], streams_[i])); // reduceScatter locally
         //NCCL_CHECK(    ncclAllReduce(recvbuf, recvbuf, bufsize, ncclFloatType, ncclSum, globalComms_[i], streams_[i])); // then do tuple-wise allReduce across processes
       }
-      mpiBarrier();
+      //mpiBarrier();
     }
 
     // reset gradients outside the shards we reduce in
@@ -196,7 +196,7 @@ public:
       MPI_Datatype mpiFLoatType = MPI_FLOAT;
       if(vals->type() == Type::float16)
         ABORT("Half precision is datatype is not supported by MPI.");
-      mpiBarrier(); // This barrier should be outside of the for loop probably.
+      //mpiBarrier(); // This barrier should be outside of the for loop probably.
 
       //mpi_->Allgather(sendbuf, bufsize, mpiFLoatType, recvbuf, bufsize, mpiFLoatType);
       std::memcpy(&tmpsendbff[0], sendbuf, sizeof(float)*bufsize);
@@ -204,7 +204,7 @@ public:
       //the local version did it so:
       //auto& comms = shardingMode_ == ShardingMode::global ? globalComms_ : localComms_;
       //NCCL_CHECK(ncclAllGather(sendbuf, recvbuf, bufsize, ncclFloatType, comms[i], streams_[i]));
-      mpiBarrier();
+      //mpiBarrier();
     }
   }
 
@@ -216,7 +216,7 @@ public:
       MPI_Datatype mpiFLoatType = MPI_FLOAT;
       if(vals->type() == Type::float16)
         ABORT("Half precision is datatype is not supported by MPI.");
-      mpiBarrier(); // This barrier should be outside of the for loop probably.
+      //mpiBarrier(); // This barrier should be outside of the for loop probably.
 
       if(average)
         mpi_->allReduce(vals->data(), vals->data(), vals->size(), mpiFLoatType, MPI_SUM);
@@ -250,7 +250,7 @@ public:
     // if we are here we use local mode and shards are process-wise copies
     // This is not yet supported for MPICommunicator, but it wouldn't hurt to have the code there
     ABORT("Local sharding mode reduceScatter not supported yet for mpi communicator.");
-    mpiBarrier();
+    //mpiBarrier();
     for(int i = 0; i < opts.size(); ++i) {
       for(auto shard : opts[i]->getShards()) {
         if(shard) {
