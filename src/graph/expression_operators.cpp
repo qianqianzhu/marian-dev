@@ -1,3 +1,8 @@
+/* All or part of this file was contributed by NVIDIA under license:
+ *   Copyright (C) 2020 NVIDIA Corporation
+ *   SPDX-License-Identifier: MIT
+ */
+ 
 #include "graph/expression_operators.h"
 #include "common/definitions.h"
 #include "layers/constructors.h"
@@ -319,6 +324,20 @@ Expr atleast_4d(Expr a) {
   return atleast_nd(a, 4);
 }
 
+Expr addPosEmbedding(Expr embeddings, float scaleFactor, int startPos) {
+  int dimEmb   = embeddings->shape()[-1];
+  int dimWords = embeddings->shape()[-3];
+  auto graph = embeddings->graph();
+  if (!graph->isInference() || graph->getBackend()->getDeviceId().type == DeviceType::cpu) {
+    auto signal = graph->constant({dimWords, 1, dimEmb},
+                                   inits::sinusoidalPositionEmbeddings(startPos));
+    return scaleFactor * embeddings + signal;
+  }
+
+  // Mode is GPU inference
+  return Expression<PosEmbeddingNodeOp>(embeddings, scaleFactor, startPos);
+}
+
 Expr atleast_nd(Expr a, size_t dims) {
   if(a->shape().size() >= dims)
     return a;
@@ -590,7 +609,16 @@ Expr bdot(Expr a, Expr b, bool transA, bool transB, float scale) {
   return Expression<DotBatchedNodeOp>(a, b, transA, transB, scale);
 }
 
-Expr affineDefault(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
+// A fused version of affine for GPU inference
+static Expr affineFused(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale, bool do_relu) {
+  if (do_relu) {
+    return Expression<AffineWithReluNodeOp>(a, b, bias, transA, transB, scale);
+  } else {
+    return affine(a, b, bias, transA, transB, scale);
+  }
+}
+
+static Expr affineDefault(Expr a, Expr b, Expr bias, bool transA, bool transB, float scale) {
   // general version, MKL, CBlas or CUDA
 
   int rows = a->shape().elements() / a->shape()[-1];
@@ -822,6 +850,20 @@ Expr unlikelihood(Expr logits, Expr indices) {
   return -log(gather(1.f - softmax(logits), /*axis=*/-1, indicesWithLayout));
 }
 
+Expr addFactorMaxes(Expr lemmaHasFactorGroup, std::vector<Expr> groupLosses, Expr hypIndices, size_t groupStart, size_t numLemmas) {
+  if(groupLosses.size() == 1) {
+    return groupLosses[0];
+  }
+  std::vector<Expr> nodes({lemmaHasFactorGroup});
+  if (hypIndices) {
+    nodes.push_back(hypIndices);
+  }
+  nodes.insert(nodes.end(), groupLosses.begin(), groupLosses.end());
+  bool hasShortList = hypIndices != nullptr;
+  return Expression<AddFactorMaxesOp>(nodes, hasShortList, groupStart, numLemmas);
+}
+
+
 Expr plus(const std::vector<Expr>& nodes) {
   ABORT_IF(nodes.size() > 1, "Not implemented");
   return nodes[0];
@@ -888,6 +930,20 @@ Expr rmsNorm(Expr x,
   if(beta)
     nodes.push_back(beta);
   return Expression<RMSNormalizationOp>(nodes, eps);
+}
+
+Expr addBiasSkipAndLayerNorm(Expr x, Expr prevInput, Expr gamma, Expr beta, Expr bias, float eps) {
+  std::vector<Expr> nodes = {x, prevInput, gamma};
+  auto graph = x->graph();
+  if (graph->isInference() && graph->getBackend()->getDeviceId().type == DeviceType::gpu) {
+    return Expression<BiasAddSkipAndNormLayerOp>(nodes, bias, beta, eps);
+  }
+
+  if (bias) {
+    x = x + bias;
+  }
+  x = x + prevInput;
+  return layerNorm(x, gamma, beta, eps);
 }
 
 Expr highway(Expr y, Expr x, Expr t) {

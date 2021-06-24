@@ -1,3 +1,8 @@
+/* All or part of this file was contributed by NVIDIA under license:
+ *   Copyright (C) 2020 NVIDIA Corporation
+ *   SPDX-License-Identifier: MIT
+ */
+
 #pragma once
 #include "graph/expression_graph.h"
 #include "graph/node_initializers.h"
@@ -643,6 +648,13 @@ Expr atleast_nd(Expr a, size_t dims);
  * @todo add a && version, to avoid a ref count. NodeInitializers are typically temps.
  * and/or make this a template on init
  */
+Expr addPosEmbedding(Expr embeddings, float scaleFactor, int startPos);
+
+Expr addFactorMaxes(Expr lemmaHasFactorGroup, std::vector<Expr> groupLosses, Expr hypIndices, size_t groupStart, size_t numLemmas);
+
+// create a constant of shape a->shape() and initialize with init
+// @TODO: add a && version, to avoid a ref count. NodeInitializers are typically temps.
+// @TODO: and/or make this a template on init
 static inline Expr constant_like(Expr a, const Ptr<inits::NodeInitializer>& init) {
   return a->graph()->constant(a->shape(), init, a->value_type());
 }
@@ -935,6 +947,8 @@ Expr rmsNorm(Expr x, Expr gamma, Expr beta = nullptr, float eps = 1e-9);
  * @f$ \operatorname{sigmoid}(t) y + (1-\operatorname{sigmoid}(t)) x @f$
  * @see HighwayNodeOp
  */
+Expr addBiasSkipAndLayerNorm(Expr x, Expr prevInput, Expr gamma, Expr beta = nullptr, Expr bias = nullptr, float eps = 1e-9);
+
 Expr highway(Expr y, Expr x, Expr t);
 
 /** @copybrief highway

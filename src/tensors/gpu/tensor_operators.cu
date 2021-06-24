@@ -1,3 +1,10 @@
+/* All or part of this file was contributed by NVIDIA under license:
+ *   Copyright (C) 2020 NVIDIA Corporation
+ *   SPDX-License-Identifier: MIT
+ */
+
+#include <limits>
+#include "common/logging.h"
 #include "common/types.h"
 #include "tensors/tensor_operators.h"
 
@@ -8,6 +15,20 @@
 #include "tensors/gpu/cuda_helpers.h"
 
 #include "tensors/gpu/add_all.h"
+
+#if COMPILE_FP16
+#include <cuda_fp16.h>
+__device__ __forceinline__ half max(const half a, const half b) {
+  return a > b ? a : b;
+}
+#endif
+
+
+#if CUDA_VERSION >= 11000
+#include <cub/cub.cuh>
+#else
+#include "cub/cub/cub.cuh"
+#endif
 
 namespace marian {
 
@@ -2067,6 +2088,7 @@ __global__ void gLNormalization(T* out,
   }
 }
 
+
 void LayerNormalization(Tensor out,
                         Tensor in,
                         Tensor gamma,
@@ -3299,5 +3321,348 @@ void PoolingWithMaskingBackward(Tensor adj,
                                            width,
                                            lastWidth);
 }
+
+template<typename T>
+__global__ void gComputeSinusoidalPosEmb(T* result, const T* const embedding, float scaleFactor, int startPos, 
+                                         int dimWords, int dim2, int dimEmb, int elts) {
+
+  const float numTimescales = (float)dimEmb / 2;
+  const float logTimescaleIncrement = log(10000.f) / (numTimescales - 1.f);
+
+  const size_t offset = blockDim.x * blockIdx.x + threadIdx.x;
+
+  if (offset < elts) {
+    // Dim2 of signal is 1 so we ignore it
+    const int colInSignal = offset % dimEmb;
+    const int rowInSignal = (offset / (dimEmb * dim2)) % dimWords;
+
+    const int p = rowInSignal + startPos;
+    const int i = colInSignal % (int) numTimescales;
+    const float v = p * exp(i * -logTimescaleIncrement);
+    const T posSignal = colInSignal < (int) numTimescales? sin(v) : cos(v);
+    const T scaledEmbedding = (T)scaleFactor * embedding[offset];
+    result[offset] = scaledEmbedding + posSignal;
+  }
+}
+
+void AddPosEmbeddings(marian::Tensor result, const marian::Tensor& embeddings, float scaleFactor, int startPos) {
+
+  int dimEmb = embeddings->shape()[-1];
+  int broadcastDim = embeddings->shape()[-2];
+  int dimWords = embeddings->shape()[-3];
+  int elts = embeddings->shape().elements();
+  
+  int threads = std::min(elts, MAX_THREADS);
+  int blocks = (elts + threads - 1) / threads;
+
+  cudaSetDevice(result->getDeviceId().no);
+
+  if(result->type() == Type::float32) {
+    gComputeSinusoidalPosEmb<<<blocks, threads>>>(
+        result->data<float>(), embeddings->data<float>(), scaleFactor, startPos, dimWords, broadcastDim, dimEmb, elts);
+#if COMPILE_FP16
+  } else if(result->type() == Type::float16) {
+    gComputeSinusoidalPosEmb<<<blocks, threads>>>(
+      result->data<half>(), embeddings->data<half>(), scaleFactor, startPos, dimWords, broadcastDim, dimEmb, elts);
+#endif
+  } else {
+    ABORT("gComputeSinusoidalPosEmb not implemented for type {}", result->type());
+  }
+}
+
+template<typename T>
+__device__ __forceinline__ T addBiasAndSkipConnection(T* xRow, T* prevInputRow, T* bias, int id) {
+  const T biasAdd = xRow[id] + (bias? bias[id] : T(0));
+  const T skipConnection = biasAdd + prevInputRow[id];
+  return skipConnection;
+}
+
+// Code duplication here since gLayerNormGrad would no longer correspond to gLayerNorm. Can shrink code by allowing
+// prevInput to also be a nullptr in this function and the device function above.
+template <typename T, typename AccType = float>
+__global__ void gAddBiasSkipAndLayerNormalization(T* out,
+                                                  const T* in,
+                                                  const T* bias,
+                                                  const T* prevInput,
+                                                  const T* gamma,
+                                                  const T* beta,
+                                                  int rows,
+                                                  int cols,
+                                                  AccType eps = 1e-9) {
+  extern __shared__ uint8_t _sharedBytes[];
+  AccType* _shareAccType = (AccType*)_sharedBytes;
+
+  AccType N = cols;
+
+  for(int bid = 0; bid < rows; bid += gridDim.x) {
+    int j = bid + blockIdx.x;
+    if(j < rows) {
+      T* yRow       = out + j * cols;
+      const T* xRow =  in + j * cols;
+      const T* prevInputRow = prevInput + j * cols;
+
+      AccType* _sum = _shareAccType; // accumulate into floats
+      _sum[threadIdx.x] = (AccType)0.0f;
+      for(int tid = 0; tid < cols; tid += blockDim.x) {
+        int id = tid + threadIdx.x;
+        if(id < cols) {
+          const T normInput = addBiasAndSkipConnection(xRow, prevInputRow, bias, id);
+          _sum[threadIdx.x] += (AccType)normInput;
+        }
+      }
+      __syncthreads();
+      int len = blockDim.x;
+      while(len != 1) {
+        __syncthreads();
+        int skip = (len + 1) >> 1;
+        if(threadIdx.x < (len >> 1)) {
+          _sum[threadIdx.x] += _sum[threadIdx.x + skip];
+        }
+        len = (len + 1) >> 1;
+      }
+      __syncthreads();
+      AccType mean = _sum[0] / N;
+      __syncthreads();
+
+      AccType* _sqSum = _shareAccType;
+
+      _sqSum[threadIdx.x] = (AccType)0.0f;
+      for(int tid = 0; tid < cols; tid += blockDim.x) {
+        int id = tid + threadIdx.x;
+        if(id < cols) {
+          const T normInput = addBiasAndSkipConnection(xRow, prevInputRow, bias, id);
+          AccType xv =  (AccType) normInput;
+          AccType ex = xv - mean;
+          _sqSum[threadIdx.x] += ex * ex;
+        }
+      }
+      __syncthreads();
+      len = blockDim.x;
+      while(len != 1) {
+        __syncthreads();
+        int skip = (len + 1) >> 1;
+        if(threadIdx.x < (len >> 1))
+          _sqSum[threadIdx.x] += _sqSum[threadIdx.x + skip];
+        len = (len + 1) >> 1;
+      }
+      __syncthreads();
+      AccType sigma = functional::Ops<AccType>::sqrt(_sqSum[0] / N + eps); // all AccType
+      __syncthreads();
+
+      for(int tid = 0; tid < cols; tid += blockDim.x) {
+        int id = tid + threadIdx.x;
+        if(id < cols) {
+          AccType gammav = (AccType)gamma[id];
+          AccType xv     = (AccType)addBiasAndSkipConnection(xRow, prevInputRow, bias, id);
+          AccType betav  = beta ? (AccType)beta[id] : (AccType)0.f;
+          AccType lv     = (xv - mean) / sigma;
+          AccType y      = gammav * lv + betav;
+          yRow[id]       = (T)y;
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
+
+
+void AddBiasSkipAndLayerNormalization(Tensor out,
+                                      Tensor in,
+                                      Tensor bias,
+                                      Tensor prevInput,
+                                      Tensor gamma,
+                                      Tensor beta,
+                                      float eps) {
+  cudaSetDevice(out->getDeviceId().no);
+
+  int rows = in->shape().elements() / in->shape().back();
+  int cols = in->shape().back();
+
+  int blocks = std::min(MAX_BLOCKS, (int)rows);
+  int threads = std::min(MAX_THREADS, (int)cols);
+  int shared = threads * sizeof(float);
+
+  ABORT_IF(bias && cols != bias->shape().elements(), "The number of columns in the input must match the number of elements in the bias");
+  ABORT_IF(cols != prevInput->shape().back(), "The previous input and the current inputs must have the same shape for skip");
+  ABORT_IF(in->shape().elements() != prevInput->shape().elements(), "The previous input and the current inputs must have the same shape for skip");
+
+
+  if(out->type() == Type::float32) {
+    gAddBiasSkipAndLayerNormalization<float, float><<<blocks, threads, shared>>>(out->data<float>(),
+                                                                                 in->data<float>(),
+                                                                                 bias? bias->data<float>() : nullptr,
+                                                                                 prevInput->data<float>(),
+                                                                                 gamma->data<float>(),
+                                                                                 beta ? beta->data<float>() : nullptr,
+                                                                                 rows,
+                                                                                 cols,
+                                                                                 eps);
+ #if COMPILE_FP16
+  } else if (out->type() == Type::float16) {
+    gAddBiasSkipAndLayerNormalization<half, float><<<blocks, threads, shared>>>(out->data<half>(),
+                                                                                in->data<half>(),
+                                                                                bias? bias->data<half>() : nullptr,
+                                                                                prevInput->data<half>(),
+                                                                                gamma->data<half>(),
+                                                                                beta ? beta->data<half>() : nullptr,
+                                                                                rows,
+                                                                                cols,
+                                                                                eps);
+#endif
+  } else {
+    ABORT("LayerNormalization not implemented for type {}", out->type());
+  }
+}
+
+template <typename T>
+struct ptrInnerDimPair {
+  T* ptr;
+  int innerDim;
+};
+
+template <typename T>
+__global__ void gAddFactorMaxes(T* out, const int8_t* const lemmaHasFactorGroup, const IndexType* const indices, 
+                                ptrInnerDimPair<T>* lossAndLastDimSize, size_t numGroups, size_t sizeWithoutInnerDim, 
+                                size_t groupStart, int lemmaHasFactorGroupWidth, size_t numLemmas, T minimal) {
+
+  extern __shared__ uint8_t _sharedBytes[];
+  T* sel = (T*)_sharedBytes;
+  T* factorMaximasInBlock = sel + blockDim.x;  
+  typedef cub::WarpReduce<T> WarpReduce;
+  __shared__ typename WarpReduce::TempStorage temp_storage[32]; // Max thread size (1024) divided by warp size (32)
+
+
+  // We exploit the fact that the factor groups (except for the lemmas) tends to be small. Therefore, we perform
+  // all of the reductions across factor groups in parallel by splitting the work across warps.
+  const int lane = threadIdx.x % warpSize;
+  const int wid = threadIdx.x / warpSize;
+  const int numWarps = blockDim.x / warpSize; 
+
+  for(int warpFactorGroup = wid + 1; warpFactorGroup < numGroups; warpFactorGroup+=numWarps) {
+    T* groupLosses = lossAndLastDimSize[warpFactorGroup].ptr;
+    int groupLossesInnerDim = lossAndLastDimSize[warpFactorGroup].innerDim;
+    int groupLossSize = groupLossesInnerDim * sizeWithoutInnerDim;
+
+    T factorMaxima = minimal;
+    // Each block computes the factor maxes within a given row.
+    // We start by each warp computing offset to the row its block is responsible for in the loss
+
+    // This is per warp since groupLossesInnerDim is warp specific and the groupLossesPtr is also warp specific.
+    const int blockRowStart = blockIdx.x * groupLossesInnerDim;
+    for(int lossCol = lane; lossCol < groupLossesInnerDim; lossCol += warpSize) {
+      int warpOffset = blockRowStart + lossCol;
+      if(warpOffset < groupLossSize) {
+        factorMaxima = max(factorMaxima, groupLosses[warpOffset]);
+      }
+    }
+
+    // Each warp reduces the accumulated values. Warps can do this in parallel. Then each each writes its final value to shared mem.
+    factorMaxima = WarpReduce(temp_storage[wid]).Reduce(factorMaxima, cub::Max());
+    if(lane == 0) {
+      factorMaximasInBlock[warpFactorGroup] = factorMaxima;
+    }
+  }
+
+  // Wait for all warps to write out to shared mem so the second phase of this kernel can proceed.
+  __syncthreads();
+  
+  // First, each block computes the max across the row for each group and stores in in factorMaximasInBlock[g]
+  
+  // Each block has the max for each factor, so we iterate over the groups again and accumulate the 
+  // output in shared mem one block at a time before writing the results for the row to out
+  T* selGlobal = lossAndLastDimSize[0].ptr;
+  const int outTensorInnerDim = lossAndLastDimSize[0].innerDim;
+  const int outputSize = sizeWithoutInnerDim * outTensorInnerDim;
+  const int outRowOffset = blockIdx.x * outTensorInnerDim;
+
+  for(int offset = threadIdx.x; offset < outTensorInnerDim; offset += blockDim.x) {
+    const int outOffset = outRowOffset + offset;
+    if(outOffset < outputSize) sel[threadIdx.x] = selGlobal[outOffset]; 
+
+    // Accumulate the row's portion in shared memory
+    for(int g = 1; g < (int)numGroups; ++g) {
+      int lemma = indices? indices[offset] - groupStart: offset;
+      T factorMask = static_cast<T>(lemmaHasFactorGroup[lemma * lemmaHasFactorGroupWidth + g]);
+      T factorMaxima = factorMaximasInBlock[g];
+
+      if(outOffset < outputSize) {
+        sel[threadIdx.x] += (factorMask * factorMaxima);
+      }
+    }
+    if(outOffset < outputSize) out[outOffset] = sel[threadIdx.x];
+  }
+}
+
+void AddFactorMaxes(Tensor out,
+                    Ptr<Allocator> allocator,
+                    const Tensor lemmaHasFactorGroupTensor,
+                    const Tensor indices,
+                    const std::vector<marian::Tensor>& groupLosses,
+                    size_t groupStart,
+                    size_t numLemmas) {
+
+  cudaSetDevice(out->getDeviceId().no);
+
+  ABORT_IF(lemmaHasFactorGroupTensor->type() != Type::int8, "lemmaHasFactor group tensor wrong type");
+  ABORT_IF(out->shape()[-1] != (int) numLemmas, "Output shape {} or numLemmas {} incorrect", out->shape(), numLemmas);
+
+  const int threads = std::min(MAX_THREADS, std::max(32, out->shape()[-1]));
+  const int sizeWithoutInnerDim = out->shape().elements() / out->shape()[-1];
+
+  if(out->type() == Type::float32) {
+    IPtr<MemoryPiece> mp_ptrs = allocator->alloc<ptrInnerDimPair<float>>(groupLosses.size()); 
+    ptrInnerDimPair<float>* dest = mp_ptrs->data<ptrInnerDimPair<float>>();
+
+    std::vector<ptrInnerDimPair<float>> lossPtrs;
+    for(const auto& t : groupLosses) {
+      ptrInnerDimPair<float> pair = {t->data<float>(), t->shape()[-1]};
+      lossPtrs.push_back(pair);
+    }
+
+    // Async just so that call is issued in per thread default stream
+    CUDA_CHECK(cudaMemcpyAsync(dest, lossPtrs.data(), lossPtrs.size() * sizeof(ptrInnerDimPair<float>), cudaMemcpyHostToDevice, 0));
+    const int blocks = sizeWithoutInnerDim;
+    const int sharedBytes = sizeof(float) * (groupLosses.size() + threads);
+    gAddFactorMaxes<<<blocks, threads, sharedBytes>>>(out->data<float>(), 
+                                                      lemmaHasFactorGroupTensor->data<int8_t>(), 
+                                                      indices? indices->data<IndexType>(): nullptr, 
+                                                      dest,
+                                                      groupLosses.size(),
+                                                      sizeWithoutInnerDim,
+                                                      groupStart, lemmaHasFactorGroupTensor->shape()[1], numLemmas,
+                                                      std::numeric_limits<float>::lowest());
+    CUDA_CHECK(cudaStreamSynchronize(0));
+    allocator->free(mp_ptrs);
+  #if COMPILE_FP16
+  } else if(out->type() == Type::float16) {
+    IPtr<MemoryPiece> mp_ptrs = allocator->alloc<ptrInnerDimPair<half>>(groupLosses.size()); 
+    ptrInnerDimPair<half>* dest = mp_ptrs->data<ptrInnerDimPair<half>>();
+
+    std::vector<ptrInnerDimPair<half>> lossPtrs;
+    for(const auto& t : groupLosses) {
+      ptrInnerDimPair<half> pair = {t->data<half>(), t->shape()[-1]};
+      lossPtrs.push_back(pair);
+    }
+
+    // Async just so that call is issued in per thread default stream
+    CUDA_CHECK(cudaMemcpyAsync(dest, lossPtrs.data(), lossPtrs.size() * sizeof(ptrInnerDimPair<half>), cudaMemcpyHostToDevice, 0));
+    const int blocks = sizeWithoutInnerDim;
+    const int sharedBytes = sizeof(half) * (groupLosses.size() + threads);
+    gAddFactorMaxes<<<blocks, threads, sharedBytes>>>(out->data<half>(), 
+                                                      lemmaHasFactorGroupTensor->data<int8_t>(), 
+                                                      indices? indices->data<IndexType>(): nullptr, 
+                                                      dest,
+                                                      groupLosses.size(),
+                                                      sizeWithoutInnerDim,
+                                                      groupStart, lemmaHasFactorGroupTensor->shape()[1], numLemmas,
+                                                      __float2half(std::numeric_limits<float>::lowest()) );
+    CUDA_CHECK(cudaStreamSynchronize(0));
+    allocator->free(mp_ptrs);
+  #endif
+  } else {
+    ABORT("AddFactorMaxes not implemented for type {}", out->type());
+  }
+}
+
 }  // namespace gpu
 }  // namespace marian

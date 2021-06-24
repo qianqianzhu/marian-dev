@@ -1,3 +1,8 @@
+/* All or part of this file was contributed by NVIDIA under license:
+ *   Copyright (C) 2020 NVIDIA Corporation
+ *   SPDX-License-Identifier: MIT
+ */
+
 #ifdef _MSC_VER
 #pragma warning(disable: 4505) // warning C4505: '__float2half_rz': unreferenced local function has been removed (missing 'static inline')
 #endif
@@ -625,7 +630,6 @@ void affineTyped(marian::Tensor C, Ptr<Allocator> allocator, const marian::Tenso
 
   size_t bias_size = bias->shape().elements();
   ABORT_IF(n != bias_size, "The number of elements in the bias must match the number of columns in C");
-
   if(transB)
     ldc = B->shape().elements() / B->shape().back();
 
@@ -634,17 +638,13 @@ void affineTyped(marian::Tensor C, Ptr<Allocator> allocator, const marian::Tenso
 
   auto backend = std::static_pointer_cast<gpu::Backend>(C->getBackend());
   auto cublasHandle = backend->getCublasHandle();
-  auto ltHandle = (cublasLtHandle_t)backend->getCublasHandle(); // A cublas handle encapsulates an lt handle
-
-  size_t numWorkSpaceElts = 8192; // Allows for cublasLt to perform split-K gemms. This is chosen to be at least
-                                  // 16 KiB for float16 which is large enough to prevent alloc failed errors
-  size_t workspaceSizeBytes = numWorkSpaceElts * sizeof(T);
-  IPtr<MemoryPiece> workspace = allocator->alloc<T>(numWorkSpaceElts);  
-
+  auto ltHandle = (cublasLtHandle_t)cublasHandle; // A cublas handle encapsulates an lt handle
   cudaStream_t stream = 0;
   CUBLAS_CHECK(cublasGetStream(cublasHandle, &stream));
 
-
+  // No workspace since I don't want to allocate and synchronize before freeing the allocator.
+  // The stream sync prevents the CPU from queueing up GPU kernel launches. Probably need a solution for
+  // this in general.
   CUBLAS_CHECK(cublasLtAffineTyped(ltHandle, 
                                    opB, 
                                    opA, 
@@ -660,24 +660,17 @@ void affineTyped(marian::Tensor C, Ptr<Allocator> allocator, const marian::Tenso
                                    C->data<T>(),
                                    ldc,
                                    bias->data<T>(),
-                                   workspace->data<T>(),
-                                   workspaceSizeBytes,
+                                   NULL,
+                                   0,
                                    do_relu,
                                    stream));
-  
-  allocator->free(workspace);
 }
 
 // This version is needed so that Windows doesn't complain when compiling CUDA < 11. Otherwise, the ifdef could be inside of one
 // definition of Affine.
-void Affine(marian::Tensor C, 
-            Ptr<Allocator> allocator, 
-            const marian::Tensor& A, 
-            const marian::Tensor& B, 
-            const marian::Tensor& bias,
+void Affine(marian::Tensor C, Ptr<Allocator> allocator, const marian::Tensor& A, const marian::Tensor& B, const marian::Tensor& bias,
             bool transA, bool transB, float beta, float scalar, bool do_relu) {
-  // There is a bug in CUDA 11 where the bias pointer needs to be 8 byte aligned. This bug will be fix in a subsequent release. For now,
-  // we launch a custom epilogue if the bias does not meet the alignment requirement.           
+             
   if(C->type() == Type::float32) {
     affineTyped<float>(C, allocator, A, B, bias, transA, transB, beta, scalar, do_relu);
     if((uintptr_t)bias->data<float>() % REQUIRED_BIAS_ALIGNMENT != 0) {
@@ -697,11 +690,7 @@ void Affine(marian::Tensor C,
 
 #else
 
-void Affine(marian::Tensor C, 
-            Ptr<Allocator> /*allocator*/, 
-            const marian::Tensor& A, 
-            const marian::Tensor& B, 
-            const marian::Tensor& bias,
+void Affine(marian::Tensor C, Ptr<Allocator> /*allocator*/, const marian::Tensor& A, const marian::Tensor& B, const marian::Tensor& bias,
             bool transA, bool transB, float beta, float scalar, bool do_relu) {
              
   if(C->type() == Type::float32) {

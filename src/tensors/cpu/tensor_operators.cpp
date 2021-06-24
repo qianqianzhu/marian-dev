@@ -2,6 +2,11 @@
  *   Copyright (C) 2017-2018 Intel Corporation
  *   SPDX-License-Identifier: MIT
  */
+ 
+/* All or part of this file was contributed by NVIDIA under license:
+ *   Copyright (C) 2020 NVIDIA Corporation
+ *   SPDX-License-Identifier: MIT
+ */
 
 #include "tensors/tensor_operators.h"
 #include "tensors/cpu/backend.h"
@@ -22,6 +27,26 @@ namespace cpu {
 
 void IsNaN(const Tensor /*in*/, Ptr<Allocator> /*allocator*/, bool& /*isNaN*/, bool& /*isInf*/) {
   ABORT("Not implemented");
+}
+
+void AddPosEmbeddings(marian::Tensor /*result*/, const marian::Tensor& /*embeddings*/, float /*scaleFactor*/, int /*startPos*/) {
+  ABORT("Not implemented");
+}
+
+
+void AddBiasSkipAndLayerNormalization(Tensor /*out*/, Tensor /*in*/, Tensor /*bias*/, Tensor /*prevInput*/, Tensor /*gamma*/,
+                                      Tensor /*beta*/, float /*eps*/) {
+  ABORT("Not implemented");
+}
+
+void AddFactorMaxes(Tensor /*out*/,
+                    Ptr<Allocator> /*allocator*/,
+                    const Tensor /*lemmaHasFactorGroupTensor*/,
+                    const Tensor /*indices*/,
+                    const std::vector<marian::Tensor>& /*groupLosses*/,
+                    size_t /*groupStart*/,
+                    size_t /*numLemmas*/) {
+  ABORT("AddFactorMaxes not implemented on CPU");
 }
 
 template <bool add, typename To, typename From>
