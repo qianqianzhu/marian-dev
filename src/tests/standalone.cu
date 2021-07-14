@@ -659,24 +659,24 @@ void sanity_test() {
   cudaMalloc(&bias_dev, sizeof(float) * m * n);
   cudaMemcpy(bias_dev, bias, sizeof(float) * m * n, cudaMemcpyHostToDevice);
 
-  cutlass_igemm_nn(0,
-                   0,
-                   m,
-                   n,
-                   k,
-                   alpha_dev,
-                   mtra_dev,
-                   lda,
-                   mtrb_dev,
-                   ldb,
-                   beta_dev,
-                   mtrc_dev,
-                   ldc,
-                   0, /*We want this to be true for best performance*/
-                   1, /* fused unquantisation (and bias addition (and activation function) if those
-                         are present). Should be true for best performance */
-                   bias_dev,
-                   0 /*doRelu*/);
+//  cutlass_igemm_nn(0,
+//                   0,
+//                   m,
+//                   n,
+//                   k,
+//                   alpha_dev,
+//                   mtra_dev,
+//                   lda,
+//                   mtrb_dev,
+//                   ldb,
+//                   beta_dev,
+//                   mtrc_dev,
+//                   ldc,
+//                   0, /*We want this to be true for best performance*/
+//                   1, /* fused unquantisation (and bias addition (and activation function) if those
+//                         are present). Should be true for best performance */
+//                   bias_dev,
+//                   0 /*doRelu*/);
   // Ref
   ReferenceGemm(m, n, k, 1.0, mtra_dev, lda, mtrb_dev, ldb, 0, mtrc_dev, ldc);
 
